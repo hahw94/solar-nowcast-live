@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solar Nowcast · 대시보드</title>
+<meta name="description" content="천리안 2A 기반 전국 태양광 초단기 예측 대시보드: 실황 추정부터 6시간 앞 예측까지 시각별 이용률 · 발전량">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1220'/%3E%3Ccircle cx='16' cy='14' r='6' fill='%2322d3ee'/%3E%3Cpath d='M4 24c6-6 18-6 24 0' stroke='%23a78bfa' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<script>(function(){try{var t=localStorage.getItem('sn-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);var l=new URLSearchParams(location.search).get('layout')||localStorage.getItem('sn-dash-layout');document.documentElement.setAttribute('data-layout',/^[ABCD]$/.test(l||'')?l:'B');if(localStorage.getItem('sn-dash-compact')==='1')document.documentElement.classList.add('compact');if(localStorage.getItem('sn-dash-noctl')==='1')document.documentElement.classList.add('noctl');var z=parseFloat(new URLSearchParams(location.search).get('fz')||localStorage.getItem('sn-dash-fz')||'1');if(z>=.7&&z<=2.5)document.documentElement.style.setProperty('--fz',z);}catch(e){}})();</script>
+<style>
+/* 2026-10-27 대시보드: 지난 실황(위성) → 현재 → 예측을 시각별 카드로 차례대로 재생. 최신 발표를 1분마다 확인해 저절로 갱신 */
+:root{--bg:#050913;--bg2:#0b1324;--glass:rgba(16,25,46,.62);--glass2:rgba(22,34,60,.72);--line:rgba(148,163,184,.16);--line2:rgba(148,163,184,.32);--text:#eef3fa;--sub:#a9b6c8;--muted:#73839a;
+  --obs:#22d3ee;--obs2:#0e7490;--fc:#fbbf24;--fc2:#b45309;--a2:#a78bfa;--ok:#34d399;--bad:#fb7185;--warn:#fb923c;--shadow:0 18px 50px rgba(0,0,0,.45);
+  --b1:rgba(34,211,238,.20);--sea1:#10233d;--sea2:#070f1d;--b2:rgba(167,139,250,.18);--b3:rgba(251,191,36,.12);
+  --mono:"Cascadia Mono",Consolas,ui-monospace,"SF Mono",monospace;--sans:Pretendard,"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;color-scheme:dark}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#eef3f9;--bg2:#ffffff;--glass:rgba(255,255,255,.72);--glass2:rgba(255,255,255,.86);--line:rgba(15,23,42,.09);--line2:rgba(15,23,42,.18);--text:#0b1324;--sub:#44536a;--muted:#6b7a90;
+  --obs:#0891b2;--obs2:#67e8f9;--fc:#d97706;--fc2:#fcd34d;--a2:#7c3aed;--ok:#059669;--bad:#e11d48;--warn:#ea580c;--shadow:0 14px 40px rgba(15,23,42,.10);--b1:rgba(34,211,238,.22);--sea1:#f3f7fc;--sea2:#dbe6f2;--b2:rgba(167,139,250,.18);--b3:rgba(251,191,36,.20);color-scheme:light}}
+:root[data-theme="light"]{--bg:#eef3f9;--bg2:#ffffff;--glass:rgba(255,255,255,.72);--glass2:rgba(255,255,255,.86);--line:rgba(15,23,42,.09);--line2:rgba(15,23,42,.18);--text:#0b1324;--sub:#44536a;--muted:#6b7a90;
+  --obs:#0891b2;--obs2:#67e8f9;--fc:#d97706;--fc2:#fcd34d;--a2:#7c3aed;--ok:#059669;--bad:#e11d48;--warn:#ea580c;--shadow:0 14px 40px rgba(15,23,42,.10);--b1:rgba(34,211,238,.22);--sea1:#f3f7fc;--sea2:#dbe6f2;--b2:rgba(167,139,250,.18);--b3:rgba(251,191,36,.20);color-scheme:light}
+*{box-sizing:border-box}[hidden]{display:none!important}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+body{min-height:100vh;overflow-x:hidden}
+/* 배경: 은은한 빛 번짐 + 점 격자 */
+.sky{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.sky i{position:absolute;border-radius:50%;filter:blur(70px);animation:drift 38s ease-in-out infinite alternate}
+.sky i:nth-child(1){width:52vw;height:52vw;left:-12vw;top:-18vw;background:var(--b1)}
+.sky i:nth-child(2){width:46vw;height:46vw;right:-10vw;top:8vh;background:var(--b2);animation-duration:46s}
+.sky i:nth-child(3){width:40vw;height:40vw;left:30vw;bottom:-22vw;background:var(--b3);animation-duration:52s}
+.sky:after{content:"";position:absolute;inset:0;background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:26px 26px;mask-image:linear-gradient(180deg,rgba(0,0,0,.9),rgba(0,0,0,.15))}
+@keyframes drift{to{transform:translate(4vw,3vh) scale(1.08)}}
+@media (prefers-reduced-motion:reduce){.sky i{animation:none}}
+select option{background:var(--bg2);color:var(--text)}
+.app{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto 1fr auto;gap:14px;min-height:100vh;padding:16px 22px 18px;max-width:1920px;margin:0 auto}
+.glass{background:var(--glass);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+/* 상단 */
+.top{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.brand .k{font-weight:800;letter-spacing:.18em;font-size:calc(11px*var(--fz));color:var(--obs)}
+.brand h1{margin:0;font-size:calc(19px*var(--fz));font-weight:800;letter-spacing:-.01em}
+/* 예측 변동 감지(2026-10-31 연구자: 안 1 발표 간 변화 + 안 5 실황 이탈, 계산 nowcast_74_alert.py). 수치 패널 아래 칸, 정상은 초록 '정상', 주의 = 주황 · 경고 = 빨강 */
+/* 위성 입력 상태(2026-10-31 연구자): 정상 초록 · 일부 누락 · 건너뜀 주황 · 끊김 빨강(최신 따라가기일 때만) */
+.iqd{grid-column:1/-1;margin-top:18px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:14px;border:1px solid var(--line2);background:var(--glass2);font-size:calc(13.5px*var(--fz));color:var(--sub)}
+.iqd .ai{display:inline-grid;place-items:center;width:1.7em;height:1.7em;border-radius:50%;background:color-mix(in srgb,var(--ok) 20%,transparent);color:var(--ok);font-weight:800;flex:none}
+.iqd b{color:var(--text)}.iqd small{display:block;color:var(--muted);font-size:.9em;margin-top:2px}
+.iqd.l1{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--glass2))}.iqd.l1 .ai{background:var(--warn);color:#fff}.iqd.l1 b{color:var(--warn)}
+.iqd.l2{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--glass2))}.iqd.l2 .ai{background:var(--bad);color:#fff}.iqd.l2 b{color:var(--bad)}
+.iqd + .vd{margin-top:10px}
+.vd{grid-column:1/-1;margin-top:18px;padding:14px 16px;border-radius:16px;border:1px solid var(--line2);background:var(--glass2)}
+.vd .vh{display:flex;align-items:center;gap:8px;font-size:calc(12px*var(--fz));font-weight:800;letter-spacing:.06em;color:var(--sub)}
+.vd .chip{margin-left:auto;padding:2px 10px;border-radius:999px;font-size:calc(12.5px*var(--fz));font-weight:800;letter-spacing:0;background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.vd .hl{margin-top:8px;font-size:calc(17px*var(--fz));font-weight:800;line-height:1.35}
+.vd .vbig{margin-top:6px;font:800 calc(24px*var(--fz))/1.2 var(--mono)}.vd .vbig small{font-size:.6em;color:var(--sub)}
+.vd .vsky{margin-top:4px;font-size:calc(15px*var(--fz));font-weight:700}
+.vd .rf{margin-top:6px;font-size:calc(12px*var(--fz));color:var(--muted);line-height:1.45}
+.vd.l1{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--glass2))}.vd.l1 .chip{background:var(--warn);color:#fff}.vd.l1 .hl{color:var(--warn)}
+.vd.l2{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--glass2));animation:aglow 2.2s ease-in-out infinite}.vd.l2 .chip{background:var(--bad);color:#fff}.vd.l2 .hl{color:var(--bad)}
+@media (prefers-reduced-motion:reduce){.vd.l2{animation:none}}
+@keyframes aglow{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--bad) 22%,transparent)}}
+.live{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;border:1px solid var(--line2);font-size:calc(12.5px*var(--fz));font-weight:700;color:var(--sub);background:var(--glass)}
+.live .d{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:pulse 2s infinite}
+.live.past .d{background:var(--fc);animation:none}.live.stale .d{background:var(--muted);animation:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent)}70%{box-shadow:0 0 0 9px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.sp{flex:1}
+.ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sel,.btn{background:var(--glass2);border:1px solid var(--line2);color:var(--text);border-radius:12px;padding:7px 11px;font:700 calc(13.5px*var(--fz)) var(--sans);cursor:pointer}
+.btn:hover,.sel:hover{border-color:var(--obs)}.btn:disabled{opacity:.4;cursor:default}
+.btn.on{border-color:var(--obs);background:color-mix(in srgb,var(--obs) 18%,var(--glass2))}
+.clock{font:700 calc(22px*var(--fz)) var(--mono);letter-spacing:.02em}.clock small{font-size:calc(11px*var(--fz));color:var(--muted);margin-left:5px;font-family:var(--sans)}
+.note{display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:var(--sub);font-size:calc(13px*var(--fz));padding:0 4px}
+.note b{color:var(--text)}
+.key{display:inline-flex;align-items:center;gap:6px}.key i{width:22px;height:10px;border-radius:3px;display:inline-block}
+/* 배치: 패널 4개(수치 stat · 흐름 spark · 지도 map · 카드 cards)를 data-layout 으로 배치. 글자는 고정 크기(--z 배율, --fz = 보는 사람이 고른 글자 크기 배율) */
+:root{--fz:1;--z:var(--fz)}.compact{--z:calc(.78*var(--fz))}
+.main{display:grid;gap:14px;min-height:0}
+.pan{min-width:0;min-height:0;position:relative;overflow:hidden}
+#pStat{grid-area:stat;padding:18px 22px;--kc:var(--obs)}#pStat.fc{--kc:var(--fc)}
+#pStat:before{content:"";position:absolute;inset:0;background:radial-gradient(120% 100% at 0% 0%,color-mix(in srgb,var(--kc) 15%,transparent),transparent 60%);pointer-events:none}
+#pSpark{grid-area:spark;padding:10px 0 0;display:flex;flex-direction:column}
+#pSpark .grp{margin:0 16px 0}
+#mapc{grid-area:map}.strip{grid-area:cards}
+.sbox{position:relative;display:flex;gap:14px 34px;flex-wrap:wrap;align-items:flex-end}
+.badge{display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;font-weight:800;font-size:calc(13px*var(--z));color:var(--kc);border:1.5px solid var(--kc);background:color-mix(in srgb,var(--kc) 12%,transparent);white-space:nowrap}
+.ft{font:800 calc(54px*var(--z))/1 var(--mono);letter-spacing:-.03em;margin-top:10px}
+.fs{color:var(--sub);font-size:calc(12.5px*var(--z));margin-top:6px}
+.lab{color:var(--muted);font-size:calc(12px*var(--z));font-weight:700;letter-spacing:.06em}
+.fu .v{font:800 calc(76px*var(--z))/1 var(--mono);letter-spacing:-.04em;color:var(--kc);text-shadow:0 0 30px color-mix(in srgb,var(--kc) 30%,transparent);margin-top:4px;white-space:nowrap}
+.fu .v small{font-size:.4em;margin-left:3px;letter-spacing:0}
+.fg .v{font:800 calc(42px*var(--z))/1 var(--mono);letter-spacing:-.02em;margin-top:4px;white-space:nowrap}
+.fg .v small{font-size:.45em;margin-left:3px;color:var(--sub)}
+.fd dl{display:grid;grid-template-columns:auto auto;gap:4px 12px;margin:0;font-size:calc(13px*var(--z))}.fd dt{color:var(--muted)}.fd dd{margin:0;font-family:var(--mono);font-weight:700}
+.spark{flex:1;min-height:90px}
+.spark svg{width:100%;height:100%;display:block}
+.prog{position:absolute;left:0;bottom:0;height:4px;background:var(--kc);width:0;opacity:.85}
+.fade{animation:fade .45s ease}
+@keyframes fade{from{opacity:.25;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* 일사 지도 */
+.mapc{display:flex;flex-direction:column;padding:14px 16px 12px;--kc:var(--obs)}.mapc.fc{--kc:var(--fc)}
+.mapc .mh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.mapc .mh b{font-size:calc(14px*var(--z))}.mapc .mh span{color:var(--muted);font-size:calc(12.5px*var(--z));font-weight:700}
+.mapc .im{flex:1;min-height:200px;position:relative;margin-top:6px;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:radial-gradient(90% 80% at 60% 45%,var(--sea1),var(--sea2));box-shadow:inset 0 0 40px rgba(0,0,0,.25)}
+.mapc img{position:absolute;inset:4px;width:calc(100% - 8px);height:calc(100% - 8px);object-fit:contain;transition:opacity .35s}
+.mapc .no{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:calc(13px*var(--fz));text-align:center;padding:20px}
+.mapc .tagm{position:absolute;left:8px;bottom:8px;font-size:calc(12px*var(--fz));font-weight:800;padding:3px 9px;border-radius:999px;color:var(--kc);border:1px solid var(--kc);background:color-mix(in srgb,var(--kc) 12%,var(--glass2));z-index:1}
+.cb .g{height:9px;border-radius:5px;background:linear-gradient(90deg,#030f93 0.00% 3.33%,#061aa1 3.33% 6.67%,#0a23b1 6.67% 10.00%,#102ec0 10.00% 13.33%,#1539cf 13.33% 16.67%,#1a44df 16.67% 20.00%,#1f4eed 20.00% 23.33%,#2459e9 23.33% 26.67%,#2a63d3 26.67% 30.00%,#306fbf 30.00% 33.33%,#367ca9 33.33% 36.67%,#3b8795 36.67% 40.00%,#419281 40.00% 43.33%,#479e6e 43.33% 46.67%,#4da95c 46.67% 50.00%,#54b550 50.00% 53.33%,#69c34b 53.33% 56.67%,#87d149 56.67% 60.00%,#addf4a 60.00% 63.33%,#d6ed4e 63.33% 66.67%,#fef852 66.67% 70.00%,#f9e14b 70.00% 73.33%,#f6c743 73.33% 76.67%,#f3ae3d 76.67% 80.00%,#f09636 80.00% 83.33%,#ee7d30 83.33% 86.67%,#ec672c 86.67% 90.00%,#eb5127 90.00% 93.33%,#ea4025 93.33% 96.67%,#ea3524 96.67% 100.00%)}
+.cb .tk{position:relative;height:15px;font:10.5px var(--mono);color:var(--muted);margin-top:3px}.cb .tk span{position:absolute;transform:translateX(-50%);white-space:nowrap}.cb .tk span:first-child{transform:none}.cb .tk span:last-child{transform:translateX(-100%)}
+/* 카드 */
+.strip{padding:12px 14px 12px;display:flex;flex-direction:column}
+.grp{display:flex;gap:10px;align-items:baseline;margin:0 4px 8px;font-size:calc(11.5px*var(--fz));font-weight:800;letter-spacing:.1em;color:var(--muted);flex-wrap:wrap}
+.cards{position:relative;display:flex;gap:9px;overflow:auto;padding:4px 3px 6px;scroll-behavior:smooth;scrollbar-width:thin;min-height:0}
+.sep{flex:0 0 2px;margin:6px 3px;border-radius:2px;background:linear-gradient(180deg,transparent,var(--line2),transparent)}
+.cd{flex:1 0 112px;max-width:170px;position:relative;cursor:pointer;border-radius:14px;padding:10px 11px;border:1.5px solid var(--line);background:var(--glass2);overflow:hidden;transition:transform .25s,border-color .25s,box-shadow .25s}
+.cd:hover{transform:translateY(-2px)}
+.cd .fill{position:absolute;left:0;right:0;bottom:0;height:var(--p);background:linear-gradient(0deg,color-mix(in srgb,var(--kc) 28%,transparent),color-mix(in srgb,var(--kc) 4%,transparent));pointer-events:none;transition:height .4s}
+.cd{--kc:var(--fc)}.cd.obs,.cd.now{--kc:var(--obs)}
+.cd.fc{border-style:dashed;border-color:color-mix(in srgb,var(--fc) 45%,var(--line))}
+.cd.obs,.cd.now{border-color:color-mix(in srgb,var(--obs) 45%,var(--line))}
+.cd.on{border-style:solid;border-color:var(--kc);box-shadow:0 0 0 3px color-mix(in srgb,var(--kc) 25%,transparent);transform:translateY(-2px)}
+.cd .r1{position:relative;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.cd .t{font:800 calc(16px*var(--z)) var(--mono)}
+.cd .tg{font-size:calc(10.5px*var(--fz));font-weight:800;padding:2px 6px;border-radius:999px;color:var(--kc);background:color-mix(in srgb,var(--kc) 14%,transparent);white-space:nowrap}
+.cd .u{position:relative;font:800 calc(26px*var(--z))/1.1 var(--mono);color:var(--kc);margin-top:6px;letter-spacing:-.02em}.cd .u small{font-size:.5em;margin-left:1px}
+.cd .g{position:relative;font:700 calc(13px*var(--z)) var(--mono);color:var(--text);margin-top:2px}.cd .g small{color:var(--sub);font-size:.85em;margin-left:2px}
+
+/* A 기본: 위 수치(가로) · 흐름, 오른쪽 지도, 아래 카드 */
+[data-layout="A"] .main{grid-template-columns:minmax(0,1fr) clamp(320px,30vw,560px);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"stat map" "spark map" "cards cards"}
+/* B 지도 중심: 왼쪽 수치(세로), 가운데 큰 지도, 오른쪽 카드 목록, 아래 흐름 */
+[data-layout="B"] .main{grid-template-columns:minmax(230px,20vw) minmax(0,1fr) minmax(330px,26vw);grid-template-rows:minmax(0,1fr) clamp(130px,19vh,190px);grid-template-areas:"stat map cards" "stat spark cards"}
+[data-layout="B"] .sbox{flex-direction:column;align-items:flex-start;gap:16px}
+[data-layout="B"] .cards{flex-direction:column;flex:1}
+[data-layout="B"] .sep{flex:0 0 2px;margin:2px 6px;background:linear-gradient(90deg,transparent,var(--line2),transparent)}
+[data-layout="B"] .cd{flex:none;max-width:none;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:8px 12px}
+[data-layout="B"] .cd .r1{gap:8px}[data-layout="B"] .cd .u{margin:0;text-align:right;font-size:calc(22px*var(--z))}[data-layout="B"] .cd .g{margin:0;min-width:64px;text-align:right}
+[data-layout="B"] .cd .fill{top:0;bottom:0;right:auto;height:auto;width:var(--p);background:linear-gradient(90deg,color-mix(in srgb,var(--kc) 22%,transparent),color-mix(in srgb,var(--kc) 4%,transparent))}
+[data-layout="B"] .cd.on,[data-layout="B"] .cd:hover{transform:none}
+/* C 카드 중심: 위 수치 한 줄, 가운데 큰 카드 격자, 오른쪽 지도 · 흐름 */
+[data-layout="C"] .main{grid-template-columns:minmax(0,1fr) clamp(320px,30vw,540px);grid-template-rows:auto minmax(0,1fr) 190px;grid-template-areas:"stat map" "cards map" "cards spark"}
+[data-layout="C"] .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));grid-auto-rows:minmax(110px,1fr);align-content:stretch;flex:1}
+[data-layout="C"] .sep{display:none}[data-layout="C"] .cd{max-width:none;padding:14px 14px}
+[data-layout="C"] .cd .t{font-size:calc(19px*var(--z))}[data-layout="C"] .cd .u{font-size:calc(34px*var(--z));margin-top:10px}[data-layout="C"] .cd .g{font-size:calc(15px*var(--z))}
+[data-layout="C"] .ft{margin-top:6px}[data-layout="C"] .fd{display:none}
+/* D 좌우 반반: 왼쪽 큰 지도, 오른쪽 수치(세로) · 흐름, 아래 카드 */
+[data-layout="D"] .main{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"map stat" "map spark" "cards cards"}
+[data-layout="D"] .sbox{display:grid;grid-template-columns:auto auto;gap:12px 40px;align-items:end;justify-content:start}
+[data-layout="D"] .sbox .fh{grid-column:1/-1}
+/* 재생 조작 */
+.play{display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-basis:100%;justify-content:flex-end}   /* 2026-10-28 연구자 요청: 재생 조작을 위 조작 줄 아래로 올리고 함께 숨김 */
+.noctl .ctl>:not(.clock):not(#hide),.noctl .play{display:none!important}.noctl #hide{opacity:.55}.noctl #hide:hover{opacity:1}
+.pb{width:38px;height:38px;border-radius:50%;border:1px solid var(--line2);background:var(--glass2);color:var(--text);font-size:calc(17px*var(--fz));cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.pb:hover{border-color:var(--obs)}.pb.main{width:44px;height:44px;font-size:calc(20px*var(--fz));background:color-mix(in srgb,var(--obs) 22%,var(--glass2));border-color:var(--obs)}
+.play label{display:inline-flex;gap:7px;align-items:center;color:var(--sub);font-size:calc(13px*var(--fz));font-weight:600}
+.pos{font:700 calc(13px*var(--fz)) var(--mono);color:var(--sub);margin-left:4px}
+.fzc{display:inline-flex}.fzc .btn{border-radius:0;margin-right:-1px;padding-left:9px;padding-right:9px}.fzc .btn:first-child{border-radius:12px 0 0 12px}.fzc .btn:last-child{border-radius:0 12px 12px 0;margin-right:0}#fzv{font-family:var(--mono);min-width:56px}
+.foot{color:var(--muted);font-size:calc(11px*var(--fz));text-align:right;padding:0 4px}
+.toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:50;padding:10px 18px;border-radius:999px;background:var(--glass2);border:1px solid var(--ok);color:var(--text);font-weight:700;box-shadow:var(--shadow);backdrop-filter:blur(12px);transition:opacity .4s}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+/* 간략 보기: 작은 창용(글자 · 여백만 줄임) */
+.compact .app{gap:8px;padding:10px 12px}.compact .main{gap:8px}
+.compact .brand h1{font-size:calc(15px*var(--fz))}.compact .clock{font-size:calc(16px*var(--fz))}.compact .note{font-size:calc(12px*var(--fz))}.compact .fs{display:none}
+.compact #pStat{padding:12px 16px}.compact .pb{width:36px;height:36px;font-size:calc(14px*var(--fz))}.compact .pb.main{width:42px;height:42px}.compact .foot{display:none}
+/* 휴대폰 · 좁은 창: 어느 배치든 수치 → 지도 → 흐름 → 카드 한 줄로 */
+@media (max-width:900px){
+  .app{padding:12px 12px 14px;gap:10px}.clock{font-size:calc(17px*var(--fz))}.brand h1{font-size:calc(16px*var(--fz))}
+  .main,[data-layout] .main{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:none!important;grid-template-areas:"stat" "map" "spark" "cards"!important}
+  .sbox,[data-layout] .sbox{display:flex!important;flex-direction:row!important;flex-wrap:wrap;align-items:flex-end;gap:12px 24px}
+  .sbox .fh{flex-basis:100%}
+  .mapc .im{min-height:0;aspect-ratio:112/120;flex:none}.spark{height:110px;flex:none}
+  .cards,[data-layout] .cards{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));flex-direction:row!important;overflow:visible}.sep{display:none}
+  [data-layout] .cd{display:block!important;max-width:none}[data-layout] .cd .u{text-align:left!important;margin-top:6px!important}
+  [data-layout] .cd .fill{top:auto!important;bottom:0;right:0!important;width:auto!important;height:var(--p)!important}
+  .play{justify-content:flex-start}.foot{display:none}
+}
+@media (max-width:480px){.ctl .sel{max-width:44vw}.fu .v{font-size:calc(64px*var(--fz))}}
+
+/* 사이트 왼쪽 탭(태양광 · 풍력, 2026-10-31 연구자): PC 왼쪽 세로 막대, 휴대폰 아래 탭 막대 */
+.rail{position:fixed;left:0;top:0;bottom:0;width:76px;z-index:40;display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 0;background:var(--bg2);border-right:1px solid var(--line)}
+.rail a{width:62px;padding:10px 0 8px;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--muted);text-decoration:none;font:700 11.5px/1.2 system-ui,"Malgun Gothic",sans-serif}
+.rail a svg{width:24px;height:24px}.rail a:hover{color:var(--text)}
+.rail a.s.on{background:color-mix(in srgb,#E0A21B 16%,transparent);color:#E0A21B}.rail a.w.on{background:color-mix(in srgb,#46C2CB 16%,transparent);color:#46C2CB}.rail a.h.on{background:color-mix(in srgb,#E5533D 16%,transparent);color:#E5533D}.rail a.n.on{background:color-mix(in srgb,#5B4BFF 16%,transparent);color:#5B4BFF}.rail a.e:hover{color:#F59E0B}
+body{padding-left:92px!important}
+@media (max-width:760px){body{padding-left:max(12px,env(safe-area-inset-left,0px))!important;padding-bottom:76px!important}.rail{top:auto;right:0;width:auto;height:60px;flex-direction:row;justify-content:center;gap:4px;padding:0 6px env(safe-area-inset-bottom,0px);border-right:0;border-top:1px solid var(--line)}.rail a{flex:1;max-width:170px;flex-direction:column;justify-content:center;gap:2px;font-size:11.5px;white-space:nowrap;padding:6px 0}.rail a svg{width:21px;height:21px}}
+</style>
+</head>
+<body>
+<div class="sky"><i></i><i></i><i></i></div>
+<nav class="rail" aria-label="사이트 구역"><a href="index.html" class="s on" title="태양광 예측" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>태양광</a><a href="wind.html" class="w" title="풍력 바람 관제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 11v11"/><path d="M12 11 10.6 2.6Q12 1.4 13.4 2.6Z" fill="currentColor"/><path d="M12 11 19.6 14.6Q19.6 16.4 17.9 16.6Z" fill="currentColor"/><path d="M12 11 4.4 15.1Q3.6 13.4 4.9 12.6Z" fill="currentColor"/></svg>풍력</a><a href="hazard.html" class="h" title="위험기상 종합상황도"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 20.5 7.3v9.4L12 21.5 3.5 16.7V7.3Z"/><path d="M12 8v5M12 16.3v.2"/></svg>위험기상</a><a href="notes.html" class="n" title="관제 근무노트(로그인)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="16" rx="3"/><path d="M8.5 2.5v4M15.5 2.5v4M4 9.5h16M8.5 14l2.5 2.5 4.5-4.5"/></svg>근무노트</a><a href="https://161-33-191-137.sslip.io/" class="e" title="에너지기상예보(로그인)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/></svg>에너지기상</a></nav>
+<div class="app">
+  <div class="top">
+    <div class="brand"><div class="k">SOLAR NOWCAST · DASHBOARD</div><h1>전국 태양광 실황 · 예측</h1></div>
+    <span class="live" id="live"><span class="d"></span><span id="livet">자동 갱신</span></span>
+    <span class="sp"></span>
+    <div class="ctl">
+      <select class="sel" id="kind" aria-label="모델" title="자동 = 가장 최근에 나온 결과(낮 초단기 · 밤 단기)를 따라감"><option value="auto">자동</option><option value="day">초단기</option><option value="night">단기(밤)</option></select><select class="sel" id="dsel" aria-label="발표 날짜"></select><select class="sel" id="rsel" aria-label="발표 시각"></select>
+      <button class="btn" id="latest">최신</button>
+      <span class="clock" id="clock">--:--</span>
+      <select class="sel" id="lay" aria-label="배치" title="배치 바꾸기 (L)"><option value="B">배치 B · 지도 중심 (기본)</option><option value="A">배치 A · 가로형</option><option value="C">배치 C · 카드 중심</option><option value="D">배치 D · 좌우 반반</option></select>
+      <span class="fzc" role="group" aria-label="글자 크기"><button class="btn" id="fzm" title="글자 작게 (-)">가−</button><button class="btn" id="fzv" title="글자 크기 기본(100%)으로">100%</button><button class="btn" id="fzp" title="글자 크게 (+)">가+</button></span><button class="btn" id="cmp" title="간략 보기 (C)">간략</button><button class="btn" id="theme" aria-label="테마 바꾸기">🌙</button><button class="btn" id="fs" title="전체 화면 (F)">⛶</button><button class="btn" id="hide" title="패널 숨기기 / 보이기 (H)">숨기기 ▴</button>
+    </div>
+    <div class="play" id="play">
+    <button class="pb" id="first" title="처음">⏮</button><button class="pb" id="bk" title="이전 (←)">◀</button><button class="pb main" id="pp" title="재생 / 정지 (Space)"><svg width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg></button><button class="pb" id="fw" title="다음 (→)">▶</button><button class="pb" id="last" title="끝">⏭</button>
+    <span class="pos" id="pos"></span>
+    <label>장당 <select class="sel" id="dwell"><option value="2">2초</option><option value="3">3초</option><option value="5">5초</option><option value="8">8초</option><option value="10">10초</option><option value="15">15초</option><option value="30">30초</option></select></label>
+    <label><input type="checkbox" id="incpast"> 지난 실황도 재생</label>
+    </div>
+  </div>
+  <div class="note" id="note"></div>
+  <div class="main">
+    <section class="glass pan" id="pStat"><div class="sbox">
+      <div class="fh"><span class="badge" id="fb">—</span><div class="ft" id="ft">--:--</div><div class="fs" id="fsub"></div></div>
+      <div class="fu"><div class="lab">이용률</div><div class="v" id="fu">—</div></div>
+      <div class="fg"><div class="lab">발전량</div><div class="v" id="fg">—</div></div>
+      <div class="fd"><dl id="fdl"></dl></div>
+      <div class="iqd" id="iqd" hidden></div>
+      <div class="vd" id="vd" hidden></div></div>
+      <span class="prog" id="prog"></span></section>
+    <section class="glass pan" id="pSpark"><div class="grp"><span>이용률</span><span class="sp"></span><span class="key"><i style="background:var(--obs)"></i>실황 추정</span><span class="key"><i style="border:1.5px dashed var(--fc)"></i>예측</span></div><div class="spark" id="spark"></div></section>
+    <section class="glass pan mapc" id="mapc"><div class="mh"><b id="mt">일사 지도</b><span id="ms"></span></div>
+      <div class="im"><span class="tagm" id="mtag"></span><img id="mimg" alt=""><div class="no" id="mno" hidden>이 시각의 지도는 없습니다<br>(지도는 최근 30일 발표만 제공)</div></div>
+      <div class="cb"><div class="g"></div><div class="tk"><span style="left:0.000%">0</span><span style="left:13.333%">200</span><span style="left:26.667%">400</span><span style="left:40.000%">600</span><span style="left:53.333%">800</span><span style="left:66.667%">1000</span><span style="left:80.000%">1200</span><span style="left:100.000%">1500 W/m²</span></div></div></section>
+    <section class="glass pan strip"><div class="grp"><span>시각별 · 직전 1시간 평균</span><span class="sp"></span><span class="key"><i style="background:var(--obs)"></i>실황 추정 (위성)</span><span class="key"><i style="border:1.5px dashed var(--fc)"></i>예측</span></div><div class="cards" id="cards"></div></section>
+  </div>
+  <div class="foot">연구용 시험 운영 · 공식 예보 아님 · 실황 추정 = 천리안 2A 위성으로 만든 일사에서 추정한 발전량<br>이용률 = 발전량 ÷ 설비용량 · <a href="index.html" style="color:var(--obs)">상세 페이지</a></div>
+</div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script>
+"use strict";
+const $ = s => document.querySelector(s), isN = v => typeof v === 'number' && isFinite(v), f = (v, d = 1) => isN(v) ? v.toFixed(d) : '—', sg = (v, d = 1) => isN(v) ? (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d) : '—';
+const hm = s => +s.slice(0, 2) + +s.slice(3) / 60, css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const J = u => fetch(u + '?v=' + Date.now()).then(r => { if(!r.ok) throw new Error(r.status); return r.json(); });
+const ls = (k, v) => { try{ if(v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); }catch(e){ return null; } };
+const S = {idx:null, night:null, cur:'day', kind:ls('sn-dash-kind') || 'auto', run:null, steps:[], i:0, play:true, follow:true, t0:0, dwell:+(ls('sn-dash-dwell') || 5), inc:ls('sn-dash-inc') === '1'};
+
+/* 시각: 한국 시간 */
+const kst = () => new Date(Date.now() + 9 * 3600e3);
+function tick(){ const d = kst(); $('#clock').innerHTML = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}:${String(d.getUTCSeconds()).padStart(2, '0')}<small>KST</small>`; }
+setInterval(tick, 1000); tick();
+
+/* 발표 고르기. 2026-10-31 연구자 요청: '자동'이면 가장 최근에 나온 결과를 따라 낮 초단기 ↔ 밤 단기로 넘어감(새 결과가 나오면 바로) */
+const day = r => `${r.slice(0, 4)}-${r.slice(4, 6)}-${r.slice(6, 8)}`, WK = ['일', '월', '화', '수', '목', '금', '토'], dlab = d => `${d.slice(5)}(${WK[new Date(d + 'T00:00:00').getDay()]})`;
+const nLatest = () => { const N = S.night; return N && (N.dates || []).length ? N.by_date[N.dates[0]].slice(-1)[0].run : null; };
+function pick(){ const d = S.idx.latest, n = nLatest(); if(S.kind === 'day' || !n) return ['day', d]; if(S.kind === 'night') return ['night', n]; return n > d ? ['night', n] : ['day', d]; }   // 발표 번호(YYYYMMDD_HHMM)가 더 늦은 쪽
+const curLatest = () => S.cur === 'night' ? nLatest() : S.idx.latest;
+const nDate = r => (S.night.dates || []).find(d => S.night.by_date[d].some(x => x.run === r));
+function fillDates(){ $('#dsel').innerHTML = S.cur === 'night' ? S.night.dates.map(d => `<option value="${d}">${dlab(d)} 낮 · 단기</option>`).join('') : S.idx.dates.map(d => `<option>${d}</option>`).join(''); }
+function fillRuns(d){ $('#rsel').innerHTML = S.cur === 'night' ? (S.night.by_date[d] || []).slice().reverse().map(x => `<option value="${x.run}">${x.issue} 발표</option>`).join('')
+  : (S.idx.runs[d] || []).slice().reverse().map(r => `<option value="${r}">${r.slice(9, 11)}:${r.slice(11)} 발표</option>`).join(''); }
+async function loadNightIdx(){ try{ S.night = await J('data/night.json'); }catch(e){ S.night = null; } }
+async function init(){ S.idx = await J('data/index.json'); await loadNightIdx(); $('#kind').value = S.kind; const q = new URLSearchParams(location.search).get('run'), all = Object.values(S.idx.runs).flat();
+  if(q && all.includes(q)){ S.cur = 'day'; S.follow = false; fillDates(); await loadRun(q, true); return; }
+  const [k, r] = pick(); S.cur = k; S.follow = true; fillDates(); await loadRun(r, true); }
+function nightRun(NR){ const L = S.night.by_date[NR.date] || [], best = {};                                      // 밤 단기: 시각마다 이 발표까지 나온 가장 최근 밤 발표 값(새벽 발표는 아침 시각이 빠지므로)
+  for(const x of L){ x.rows.forEach(q => { best[q.t] = {...q, run:x.run, iss:x.issue.slice(6, 8)}; }); if(x.run === NR.run) break; }
+  const rows = Object.keys(best).sort().map(t => ({target:t, lead:`+${best[t].lead / 60}h`, L:best[t].lead, util:best[t].util, gw:best[t].gw, irr:best[t].irr, run:best[t].run, iss:best[t].iss}));
+  return {run:NR.run, night:true, date:NR.date, t0:`${NR.run.slice(0, 4)}-${NR.run.slice(4, 6)}-${NR.run.slice(6, 8)} ${NR.run.slice(9, 11)}:${NR.run.slice(11)}`, made:NR.made, rows, past:[], maps:[], acc:{}, facts:{cap:NR.cap}}; }
+async function loadRun(r, reset){ if(!r) return; const R = S.cur === 'night' ? nightRun(await J(`data/night_runs/${r}.json`)) : await J(`data/runs/${r}.json`), keep = !reset && S.run && S.run.run === r ? S.steps[S.i] : null; S.run = R;
+  const dd = S.cur === 'night' ? R.date : day(r); if($('#dsel').value !== dd || !$('#rsel').querySelector(`option[value="${r}"]`)){ $('#dsel').value = dd; fillRuns(dd); } $('#rsel').value = r;
+  $('h1').textContent = S.cur === 'night' ? '전국 태양광 단기 예측 (6.5–15시간)' : '전국 태양광 실황 · 예측';
+  alertShow(r); build(); let i = keep ? S.steps.findIndex(s => s.t === keep.t) : -1; if(i < 0) i = S.inc ? 0 : S.nowi; go(i, true); status(); }
+
+/* 예측 변동 감지: 발표마다 data/alert/<발표>.json(없으면 숨김). 지난 발표를 볼 때도 그 발표 기준으로 나옴(2026-10-31 연구자) */
+const runT = r => Date.UTC(+r.slice(0, 4), +r.slice(4, 6) - 1, +r.slice(6, 8), +r.slice(9, 11) - 9, +r.slice(11, 13));
+function staleMin(last){ if(!last) return null; const now = Date.now(), k = new Date(now + 9 * 3600e3), m = k.getUTCHours() * 60 + k.getUTCMinutes(), age = (now - runT(last)) / 60e3;
+  const lim = m >= 460 && m <= 1030 ? 60 : (m >= 1060 || m <= 340) ? 110 : null; return lim !== null && age > lim ? Math.round(age) : null; }   // 입력 끊김 추정: 텔레그램 감시와 같은 기준(2026-10-31)
+const INQ_TXT = q => q.filled ? ['위성 자료 일부 누락', `${q.filled.join(' · ')} 장면을 앞뒤 장면으로 채움`] : q.sub_min ? ['위성 자료 일부 누락', `${q.sub_min}분 떨어진 장면으로 대신 씀`] : q.skipped ? ['발표 건너뜀', `${q.skipped.join(' · ')} 발표 없음 · 위성 자료가 늦게 들어옴`] : ['위성 입력 정상', ''];
+function iqShow(a){ const D = $('#iqd'), nl = nLatest() || '', newest = nl > (S.idx.latest || '') ? nl : S.idx.latest, st = S.follow ? staleMin(newest) : null;
+  let lv = 0, lab, tx; if(st){ lv = 2; lab = '위성 자료 끊김 추정'; tx = `마지막 발표 ${newest.slice(9, 11)}:${newest.slice(11)} (${st}분 전) · 지금 보이는 예측은 오래된 값`; }
+  else if(a && a.inq){ lv = a.inq.level || 0; [lab, tx] = INQ_TXT(a.inq); } else { D.hidden = true; return; }
+  D.className = `iqd ${lv ? 'l' + lv : ''}`; D.innerHTML = `<span class="ai">${lv === 2 ? '✕' : lv ? '!' : '✓'}</span><div><b>${lab}</b>${tx ? `<small>${tx}</small>` : ''}</div>`; D.hidden = false; }
+async function alertShow(r){ let a = null; try{ a = await J(`data/alert/${r}.json`); }catch(e){} S.alert = a; iqShow(a); const V = $('#vd'); V.hidden = !a; if(!a) return;
+  const lv = a.level || 0, c = a.change, m = a.main || null, dn = a.direction === 'down', ref = c ? c.ref.slice(6) : '';
+  V.className = `vd l${lv}`;
+  if(!lv){ V.innerHTML = `<div class="vh">예측 변동 감지<span class="chip">정상</span></div><div class="hl" style="color:var(--text)">큰 변동 없음</div><div class="rf">1 – 6시간 전 발표들과 비교해 예측이 크게 바뀌지 않았습니다</div>`; return; }
+  if(!c){ const d = a.deviation; V.innerHTML = `<div class="vh">예측 변동 감지<span class="chip">${dn ? '↓' : '↑'} ${a.label}</span></div><div class="hl">실황이 예측보다 ${dn ? '흐림' : '맑음'}</div>
+    <div class="vbig">지금 ${f(d.obs, 0)}<small> % · 지난 예측 ${f(d.fc, 0)} % (${sg(d.dev, 0)} %p)</small></div><div class="rf">${d.oldest} 이후 발표 ${d.n}개 예측의 중앙값과 비교</div>`; return; }   // 실황 이탈(안 5)만 울린 경우
+  const M = m && isN(m.from_u) ? m : null, at = `${(M ? M.at : c.at).slice(0, 2)}시`, fu = M ? M.from_u : c.from_u, tu = M ? M.to_u : c.to_u, d = tu - fu, word = dn ? '흐려짐' : '맑아짐';   // 대표 시각 13시(지났으면 가장 크게 바뀐 시각), 값 · 하늘 말은 nowcast_74 main
+  const HL = `예측 변동폭 커짐 · ${word}`;                                                       // 문구: 2026-10-31 연구자(안 1)
+  V.innerHTML = `<div class="vh">예측 변동 감지<span class="chip">${dn ? '↓' : '↑'} ${a.label}</span></div>
+    <div class="hl">${HL}</div>
+    <div class="vbig">${at} ${f(fu, 0)} → ${f(tu, 0)}<small> % (${sg(d, 0)} %p)</small></div>
+    ${M && M.sky_from && M.sky_to ? `<div class="vsky">${m.sky_from} → ${m.sky_to}</div>` : ''}
+    <div class="rf">${ref} 발표 대비 · 낮 발전량 ${sg(c.energy, 0)} %${a.deviation_level ? ` · 실황도 예측보다 ${a.deviation.dev < 0 ? '흐림' : '맑음'} (${sg(a.deviation.dev)} %p)` : ''}</div>`; }
+
+/* 단계: 지난 실황(정각, 위성) → 현재 실황 추정 → 정각 예측 */
+function build(){ const R = S.run, t0 = R.t0.slice(11), acc = R.acc || {}, cap = (R.facts || {}).cap; S.cap = cap;
+  const past = (R.past || []).filter(p => p.t.endsWith(':00') && isN(p.util)).map(p => ({k:'obs', t:p.t, util:p.util, gw:p.gw, irr:p.irr}));
+  const now = R.rows.find(x => x.lead === '현재'), fc = R.rows.filter(x => x.lead !== '현재' && isN(x.util));
+  S.steps = past.concat(now && isN(now.util) ? [{k:'now', t:now.target, util:now.util, gw:now.gw, irr:now.irr}] : [])
+    .concat(fc.map(x => { const L = isN(x.L) ? x.L : Math.round((hm(x.target) - hm(t0)) * 60), a = acc[L]; return {k:'fc', t:x.target, L, util:x.util, gw:x.gw, irr:x.irr, cu:x.clip_util, cg:x.clip, e:isN(a) ? a : null, run:x.run, iss:x.iss}; }));
+  S.nowi = Math.max(0, S.steps.findIndex(s => s.k !== 'obs'));
+  const M = (R.maps || []).filter(m => m.kind === 'irr'), v = encodeURIComponent(R.made || '');
+  S.steps.forEach(s => { const m = s.k === 'obs' ? null : M.find(m => m.target === s.t && (s.k === 'now') === (m.lead === 0)); const p = (R.past || []).find(p => p.t === s.t);
+    s.map = R.night ? (s.run ? `maps_night/${s.run}/m${String(s.L).padStart(3, '0')}.webp?v=${v}` : null) : s.k === 'obs' ? (p && p.map ? `maps/${p.map}` : null) : m ? `maps/${m.file}?v=${v}` : null; if(s.map) (new Image()).src = s.map; });
+  const mx = Math.max(60, ...S.steps.map(s => s.util || 0));
+  $('#cards').innerHTML = S.steps.length ? S.steps.map((s, i) => `${i === S.nowi && i > 0 ? '<span class="sep"></span>' : ''}<div class="cd ${s.k}" data-i="${i}"><span class="fill" style="--p:${Math.max(6, s.util / mx * 100)}%"></span><div class="r1"><span class="t">${s.t}</span><span class="tg">${s.k === 'fc' ? `+${s.L % 60 ? (s.L / 60).toFixed(1) : s.L / 60}h` : s.k === 'now' ? '현재' : '실황'}</span></div><div class="u">${f(s.util, 1)}<small>%</small></div><div class="g">${f(s.gw, 1)}<small>GW</small></div></div>`).join('')
+    : '<div class="empty">이 발표에는 표시할 값이 없습니다</div>'; }
+
+function go(i, quiet){ const n = S.steps.length; if(!n) return; S.i = (i + n) % n; const s = S.steps[S.i], fcK = s.k === 'fc';
+  const F = $('#pStat'); F.classList.toggle('fc', fcK); if(!quiet){ ['#ft', '#fu', '#fg'].forEach(q => { const e = $(q); e.classList.remove('fade'); void e.offsetWidth; e.classList.add('fade'); }); }
+  $('#fb').innerHTML = fcK ? `<span class="ic">◆</span>${S.run.night ? `밤 단기 · ${s.iss}시` : `예측 · ${S.run.t0.slice(11)}`} 발표 +${s.L % 60 ? (s.L / 60).toFixed(1) : s.L / 60}시간` : s.k === 'now' ? `<span class="ic">●</span>현재 · 실황 추정 (위성)` : `<span class="ic">●</span>지난 실황 추정 (위성)`;
+  $('#ft').textContent = s.t; $('#fsub').textContent = `${S.run.night ? S.run.date : S.run.t0.slice(0, 10)} · ${s.t} 직전 1시간 평균`;
+  $('#fu').innerHTML = `${f(s.util, 1)}<small>%</small>`; $('#fg').innerHTML = `${f(s.gw, 2)}<small>GW</small>`;
+  const dl = [['평균 일사', `${f(s.irr, 0)} W/m²`]];
+  if(fcK && isN(s.e)) dl.push(['오차 범위', `±${f(s.e, 1)} %p${isN(S.cap) ? ` (±${f(s.e * S.cap / 100, 1)} GW)` : ''}`]);
+  if(fcK && isN(s.cu)) dl.push(['CLIPER 대비', `<span style="color:${s.util - s.cu < 0 ? 'var(--bad)' : 'var(--ok)'}">${sg(s.util - s.cu, 1)} %p</span>`]);
+  if(isN(S.cap)) dl.push(['설비용량', `${f(S.cap, 1)} GW`]);
+  while(dl.length < 4) dl.push(['&nbsp;', '&nbsp;']);
+  $('#fdl').innerHTML = dl.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+  document.querySelectorAll('.cd').forEach(c => c.classList.toggle('on', +c.dataset.i === S.i));
+  const on = document.querySelector('.cd.on'), C = $('#cards'); if(on){ if(C.scrollWidth > C.clientWidth + 2) C.scrollLeft = on.offsetLeft - C.clientWidth / 2 + on.clientWidth / 2; if(C.scrollHeight > C.clientHeight + 2) C.scrollTop = on.offsetTop - C.clientHeight / 2 + on.clientHeight / 2; }
+  $('#pos').textContent = `${S.i + 1} / ${n}`; lockStat(); spark(); mapShow(s); S.t0 = performance.now(); }
+
+/* 일사 지도: 지금 단계의 목표 시각 지도(지난 실황은 그 발표의 실황 지도) */
+function mapShow(s){ const C = $('#mapc'), I = $('#mimg'); C.classList.toggle('fc', s.k === 'fc');
+  $('#mt').textContent = `일사 지도 · ${s.t}`; $('#ms').textContent = `평균 ${f(s.irr, 0)} W/m²`;
+  $('#mtag').textContent = s.k === 'fc' ? `예측 +${s.L % 60 ? (s.L / 60).toFixed(1) : s.L / 60}h` : s.k === 'now' ? '현재 실황 추정' : '지난 실황 추정';
+  $('#mno').hidden = !!s.map; I.hidden = !s.map; if(s.map && I.getAttribute('src') !== s.map){ I.style.opacity = .3; I.onload = () => I.style.opacity = 1; I.src = s.map; I.alt = `${s.t} 일사 지도`; } }
+/* 흐름 선: 지난 실황(실선, 청록) · 예측(점선, 주황), 지금 보는 단계 표시 */
+function spark(){ const box = $('#spark'), W = box.clientWidth || 800, H = box.clientHeight || 90, st = S.steps; if(st.length < 2){ box.innerHTML = ''; return; }
+  const m = {l:44, r:16, t:8, b:20}, top = Math.max(...st.map(s => s.util || 0)), sp = top > 50 ? 20 : 10, mx = Math.max(sp, Math.ceil(top * 1.08 / sp) * sp);   // 이용률 % 눈금선(20 % 또는 10 % 간격)
+  const tt = st.map(s => hm(s.t)), ta = tt[0], tb = tt[tt.length - 1], X = i => m.l + (tt[i] - ta) / ((tb - ta) || 1) * (W - m.l - m.r), XT = h => m.l + (h - ta) / ((tb - ta) || 1) * (W - m.l - m.r), Y = v => H - m.b - v / mx * (H - m.t - m.b), y0 = Y(0);
+  const ob = css('--obs'), fc = css('--fc'), mu = css('--muted'), ln = css('--line2'), k = S.nowi, pt = (a, b) => st.slice(a, b).map((s, j) => `${X(a + j)},${Y(s.util)}`).join(' ');
+  let g = `<defs><linearGradient id="so" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${ob}" stop-opacity=".25"/><stop offset="1" stop-color="${ob}" stop-opacity="0"/></linearGradient><linearGradient id="sf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${fc}" stop-opacity=".22"/><stop offset="1" stop-color="${fc}" stop-opacity="0"/></linearGradient></defs>`;
+  for(let v = 0; v <= mx + 1e-9; v += sp) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="${ln}" stroke-width="1" ${v ? 'stroke-dasharray="3 5"' : ''}/><text x="${m.l - 7}" y="${Y(v) + 4}" text-anchor="end" fill="${mu}" style="font:calc(11px*var(--fz)) var(--mono)">${v}%</text>`;
+  const ph = (W - m.l - m.r) / ((tb - ta) || 1), ev = Math.max(1, Math.ceil(26 / ph));                               // 가로축: 실제 시각 간격, 정각만 "07" 처럼 시만(좁으면 건너뜀)
+  for(let h = Math.ceil(ta - 1e-6); h <= tb + 1e-6; h++) if((h - Math.ceil(ta - 1e-6)) % ev === 0) g += `<text x="${XT(h)}" y="${H - 5}" text-anchor="middle" fill="${mu}" style="font:calc(10.5px*var(--fz)) var(--mono)">${String(h).padStart(2, '0')}</text>`;
+  if(k > 0) g += `<path d="M${pt(0, k + 1).split(' ').join('L')}L${X(k)},${y0}L${X(0)},${y0}Z" fill="url(#so)"/><polyline points="${pt(0, k + 1)}" fill="none" stroke="${ob}" stroke-width="3" stroke-linejoin="round"/>`;
+  g += `<path d="M${pt(k, st.length).split(' ').join('L')}L${X(st.length - 1)},${y0}L${X(k)},${y0}Z" fill="url(#sf)"/><polyline points="${pt(k, st.length)}" fill="none" stroke="${fc}" stroke-width="3" stroke-dasharray="8 6" stroke-linejoin="round"/>`;
+  st.forEach((s, i) => { const on = i === S.i, c = s.k === 'fc' ? fc : ob; g += `<circle cx="${X(i)}" cy="${Y(s.util)}" r="${on ? 7 : 3.5}" fill="${on ? c : css('--bg2')}" stroke="${c}" stroke-width="2.5"/>`;
+    if(on) g += `<line x1="${X(i)}" x2="${X(i)}" y1="${Y(s.util) + 8}" y2="${y0}" stroke="${c}" stroke-opacity=".5" stroke-dasharray="3 4"/>`; });
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="시각별 이용률">${g}</svg>`; }
+
+/* 재생 */
+function loop(now){ if(S.play && S.steps.length){ const p = Math.min(1, (now - S.t0) / (S.dwell * 1000)); $('#prog').style.width = (p * 100) + '%';
+    if(p >= 1){ const a = S.inc ? 0 : S.nowi; go(S.i + 1 >= S.steps.length ? a : Math.max(a, S.i + 1)); } } else $('#prog').style.width = '0';
+  requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+const IC_PAUSE = '<svg width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg>', IC_PLAY = '<svg width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 2.5v11l8.5-5.5z" fill="currentColor"/></svg>';   // 글꼴 기호(⏸)는 높이가 어긋나 그림으로(2026-10-31 연구자)
+function setPlay(p){ S.play = p; $('#pp').innerHTML = p ? IC_PAUSE : IC_PLAY; S.t0 = performance.now(); }
+$('#pp').addEventListener('click', () => setPlay(!S.play));
+$('#bk').addEventListener('click', () => go(S.i - 1)); $('#fw').addEventListener('click', () => go(S.i + 1));
+$('#first').addEventListener('click', () => go(S.inc ? 0 : S.nowi)); $('#last').addEventListener('click', () => go(S.steps.length - 1));
+$('#cards').addEventListener('click', e => { const c = e.target.closest('.cd'); if(c) go(+c.dataset.i); });
+$('#dwell').value = String(S.dwell); $('#dwell').addEventListener('change', e => { S.dwell = +e.target.value; ls('sn-dash-dwell', S.dwell); S.t0 = performance.now(); });
+$('#incpast').checked = S.inc; $('#incpast').addEventListener('change', e => { S.inc = e.target.checked; ls('sn-dash-inc', S.inc ? '1' : '0'); });
+document.addEventListener('keydown', e => { if(e.target.tagName === 'SELECT') return;
+  if(e.key === ' '){ e.preventDefault(); setPlay(!S.play); } else if(e.key === 'ArrowRight') go(S.i + 1); else if(e.key === 'ArrowLeft') go(S.i - 1);
+  else if(e.key === 'f' || e.key === 'F') fsToggle(); else if(e.key === 'c' || e.key === 'C') cmpToggle(); else if(e.key === 'h' || e.key === 'H') hideToggle(); else if(e.key === '+' || e.key === '=') fzStep(1); else if(e.key === '-' || e.key === '_') fzStep(-1); else if(e.key === 'l' || e.key === 'L') setLay('ABCD'['ABCD'.indexOf($('#lay').value) + 1] || 'A'); });
+
+/* 상태 줄: 최신 따라가기 / 지난 발표 / 새 발표 대기 */
+function status(){ const R = S.run, L = $('#live'), age = (kst() - new Date(R.t0.replace(' ', 'T') + ':00Z')) / 60e3;
+  L.classList.toggle('past', !S.follow); L.classList.toggle('stale', S.follow && age > 75); $('#kind').value = S.kind;
+  $('#livet').textContent = !S.follow ? '지난 발표 보는 중' : age > 75 ? '새 발표 대기' : '최신 · 자동 갱신';
+  $('#latest').disabled = S.follow;
+  const nx = age > 75 ? ' · 초단기는 낮 07:00–16:30 30분마다, 단기는 밤 17:00–05:00 매시 발표합니다' : '';
+  $('#note').innerHTML = `<span>${R.night ? '밤 단기 · ' : ''}<b>${R.t0}</b> KST 발표${R.night ? ` → ${dlab(R.date)} 낮` : ''}</span><span>·</span><span>갱신 ${S.idx.updated}</span>${S.kind === 'auto' ? '<span>· 자동(최신 결과 따라감)</span>' : ''}${nx ? `<span>${nx}</span>` : ''}`; }
+async function goLatest(){ const [k, r] = pick(); const ch = k !== S.cur; S.cur = k; S.follow = true; history.replaceState(null, '', location.pathname); if(ch) fillDates(); await loadRun(r, true); return ch; }
+$('#latest').addEventListener('click', goLatest);
+$('#kind').addEventListener('change', async e => { S.kind = e.target.value; ls('sn-dash-kind', S.kind); const ch = await goLatest(); if(ch) toast(S.cur === 'night' ? '밤 단기 결과로 전환' : '낮 초단기 결과로 전환'); });
+$('#dsel').addEventListener('change', async e => { fillRuns(e.target.value); const r = $('#rsel').value; S.follow = r === curLatest(); history.replaceState(null, '', S.follow ? location.pathname : `?run=${r}`); await loadRun(r, true); });
+$('#rsel').addEventListener('change', async e => { const r = e.target.value; S.follow = r === curLatest(); history.replaceState(null, '', S.follow ? location.pathname : `?run=${r}`); await loadRun(r, true); });
+function toast(t){ const T = $('#toast'); T.textContent = t; T.hidden = false; T.style.opacity = 1; clearTimeout(toast.h); toast.h = setTimeout(() => { T.style.opacity = 0; setTimeout(() => T.hidden = true, 400); }, 4000); }
+setInterval(async () => { try{ const i = await J('data/index.json'); if(i.build === S.idx.build){ status(); iqShow(S.alert); return; } const was = S.run.run, wk = S.cur; S.idx = i; await loadNightIdx();
+    if(S.follow){ const [k, r] = pick(); if(k !== wk){ S.cur = k; fillDates(); } await loadRun(r, r !== was || k !== wk);
+      if(k !== wk) toast(k === 'night' ? '밤 단기 결과로 전환' : '낮 초단기 결과로 전환'); else if(r !== was) toast(`새 발표 ${r.slice(9, 11)}:${r.slice(11)} 반영`); }
+    else { const d = $('#dsel').value; fillDates(); $('#dsel').value = d; fillRuns(d); $('#rsel').value = S.run.run; status(); } }catch(e){} }, 60000);
+
+/* 보기 설정 */
+function themeNow(){ const a = document.documentElement.getAttribute('data-theme'); return a || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'); }
+function themeBtn(){ $('#theme').textContent = themeNow() === 'dark' ? '☀️' : '🌙'; }
+$('#theme').addEventListener('click', () => { const t = themeNow() === 'dark' ? 'light' : 'dark'; document.documentElement.setAttribute('data-theme', t); ls('sn-theme', t); themeBtn(); spark(); });
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { themeBtn(); spark(); }); themeBtn();
+$('#lay').value = document.documentElement.getAttribute('data-layout') || 'B';
+function setLay(v){ document.documentElement.setAttribute('data-layout', v); ls('sn-dash-layout', v); $('#lay').value = v; relayout(); }
+$('#lay').addEventListener('change', e => setLay(e.target.value));
+const FZ = [.85, 1, 1.15, 1.3, 1.5, 1.75, 2];   // 글자 크기 배율(2026-10-28 연구자 요청: 컴퓨터 화면에서 글자가 작음). 저장 sn-dash-fz, 주소 ?fz=1.3
+function fzGet(){ return parseFloat(document.documentElement.style.getPropertyValue('--fz')) || 1; }
+function fzSet(z){ z = Math.min(2, Math.max(.85, z)); document.documentElement.style.setProperty('--fz', z); ls('sn-dash-fz', String(z)); $('#fzv').textContent = Math.round(z * 100) + '%'; relayout(); }
+function fzStep(d){ const z = fzGet(), i = d > 0 ? FZ.findIndex(v => v > z + 1e-6) : FZ.length - 1 - [...FZ].reverse().findIndex(v => v < z - 1e-6); if(i >= 0 && i < FZ.length) fzSet(FZ[i]); }
+$('#fzm').addEventListener('click', () => fzStep(-1)); $('#fzp').addEventListener('click', () => fzStep(1)); $('#fzv').addEventListener('click', () => fzSet(1)); $('#fzv').textContent = Math.round(fzGet() * 100) + '%';
+function hideToggle(){ const on = document.documentElement.classList.toggle('noctl'); ls('sn-dash-noctl', on ? '1' : '0'); $('#hide').textContent = on ? '패널 ▾' : '숨기기 ▴'; relayout(); }
+$('#hide').textContent = document.documentElement.classList.contains('noctl') ? '패널 ▾' : '숨기기 ▴'; $('#hide').addEventListener('click', hideToggle);
+/* 수치 패널 높이 고정(2026-10-28 연구자: 재생 중 화면이 커졌다 작아짐 - 실황 · 예측 장면마다 줄 수가 달라 배치 A · D 의 지도 · 흐름 칸이 흔들림).
+   보인 높이 중 가장 큰 값으로 최소 높이를 잡고, 창 크기 · 배치 · 글자 크기 · 간략 · 숨기기가 바뀔 때만 다시 잰다 */
+function lockStat(){ const F = $('#pStat'), h = F.offsetHeight; if(h > (S.statH || 0)){ S.statH = h; F.style.minHeight = h + 'px'; } }
+function relayout(){ S.statH = 0; $('#pStat').style.minHeight = ''; setTimeout(() => { spark(); go(S.i, true); }, 60); }
+function cmpToggle(){ const on = document.documentElement.classList.toggle('compact'); ls('sn-dash-compact', on ? '1' : '0'); $('#cmp').classList.toggle('on', on); relayout(); }
+$('#cmp').classList.toggle('on', document.documentElement.classList.contains('compact')); $('#cmp').addEventListener('click', cmpToggle);
+function fsToggle(){ if(document.fullscreenElement) document.exitFullscreen(); else if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); }
+$('#fs').addEventListener('click', fsToggle);
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(relayout, 120); });
+init().catch(() => { $('#cards').innerHTML = '<div class="empty">게시된 결과가 아직 없습니다.</div>'; });
+</script>
+</body>
+</html>

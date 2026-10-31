@@ -1,0 +1,976 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='8'%20fill='%230b1220'/%3E%3Cpath%20d='M16%2015v12'%20stroke='%23e2e8f0'%20stroke-width='2.4'%20stroke-linecap='round'/%3E%3Cg%20fill='%2346C2CB'%3E%3Cpath%20d='M16%2015c-1.6-3-1.8-7.5%200-10%201.8%202.5%201.6%207%200%2010z'/%3E%3Cpath%20d='M16%2015c3.4.1%207.4%202.2%208.4%205.1-3%20.4-6.8-1.9-8.4-5.1z'/%3E%3Cpath%20d='M16%2015c-1.8%202.9-5.6%205.2-8.6%204.9%201.1-2.9%205.2-4.9%208.6-4.9z'/%3E%3C/g%3E%3Ccircle%20cx='16'%20cy='15'%20r='2'%20fill='%23e2e8f0'/%3E%3Cpath%20d='M22%208.5h5M24%2011.5h3.5'%20stroke='%23a5f3fc'%20stroke-width='1.6'%20stroke-linecap='round'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem("sn-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<title>풍력 바람 관제 · Solar Nowcast</title>
+<style>
+/* 레이아웃: 위 상태줄 → 요약 4칸 → [지도 | 선택 지점 상세] → 접어 둔 전체 지점 표.  풍속 색은 '터빈 운전 구간'(정지·저출력·양호·정격·강풍·컷아웃) 기준 */
+:root{
+  --bg:#F4F6FA; --surface:#FFFFFF; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0;
+  --land:#DCE4E9; --sea:#F6F9FA; --coast:#B9C6CF;
+  --accent:#0E7A88; --accent-soft:#D3ECEF;
+  --z0:#9AAAB6; --z1:#5FB8C2; --z2:#0E8C9A; --z3:#2D5BA8; --z4:#D9822B; --z5:#C8382E;
+  --font-ui:Pretendard,"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;          /* 글꼴 · 바탕은 태양광 페이지와 같게(2026-10-31) */
+  --font-num:"Cascadia Mono",Consolas,ui-monospace,"SF Mono",monospace;
+  --s1:#2D6CDF; --s2:#E07B39; --s3:#1A9E77; --s4:#B8458F; --s5:#8C6D1F;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#060A13; --surface:#0F1728; --ink:#E8EEF6; --muted:#8696AB; --line:#1E293A;
+  --land:#18253A; --sea:#0B1220; --coast:#2B3B52; --accent:#46C2CB; --accent-soft:#163A40;
+  --z0:#6B7D8A; --z1:#4FAAB5; --z2:#33C0C9; --z3:#6E95E6; --z4:#F0A04B; --z5:#F0605A; --s1:#6E9CF0; --s2:#F09A5E; --s3:#3CC49B; --s4:#DC72B6; --s5:#C9A54A; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#060A13; --surface:#0F1728; --ink:#E8EEF6; --muted:#8696AB; --line:#1E293A;
+  --land:#18253A; --sea:#0B1220; --coast:#2B3B52; --accent:#46C2CB; --accent-soft:#163A40;
+  --z0:#6B7D8A; --z1:#4FAAB5; --z2:#33C0C9; --z3:#6E95E6; --z4:#F0A04B; --z5:#F0605A; --s1:#6E9CF0; --s2:#F09A5E; --s3:#3CC49B; --s4:#DC72B6; --s5:#C9A54A; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:14px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px 32px}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* 상단 */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px}
+.brand h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
+.brand small{color:var(--muted);font-size:12.5px}
+.rotor{width:30px;height:30px;color:var(--accent)}
+.rotor g{transform-origin:15px 13px;animation:spin var(--spin,4s) linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ctrls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.live{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:12.5px;color:var(--muted)}
+.live b{color:var(--ink);font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--z2);box-shadow:0 0 0 0 var(--z2);animation:pulse 2.4s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--z2) 60%,transparent)}100%{box-shadow:0 0 0 8px transparent}}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;background:var(--surface);padding:2px}
+.seg button{border:0;background:none;padding:5px 11px;border-radius:999px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;width:32px;height:32px;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
+.iconbtn:hover{color:var(--accent);border-color:var(--accent)}
+.iconbtn svg{width:16px;height:16px}
+.iconbtn.spin svg{animation:spin 1s linear infinite}
+#theme .moon{display:none}
+:root[data-theme="light"] #theme .sun{display:none} :root[data-theme="light"] #theme .moon{display:inline}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) #theme .sun{display:none} :root:not([data-theme="dark"]) #theme .moon{display:inline}}
+
+/* 요약 */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;gap:12px;align-items:center;min-width:0;cursor:default}
+.kpi[data-site]{cursor:pointer}
+.kpi[data-site]:hover{border-color:var(--accent)}
+.kpi .lab{font-size:12px;color:var(--muted);letter-spacing:.02em}
+.kpi .val{font-size:22px;font-weight:600;line-height:1.15}
+.kpi .val small{font-size:12px;font-weight:500;color:var(--muted);margin-left:2px}
+.kpi .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi>div{min-width:0}
+.ring{width:46px;height:46px;flex:none}
+.kicon{width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.kicon svg{width:20px;height:20px}
+.kicon.warn{background:color-mix(in srgb,var(--z4) 18%,transparent);color:var(--z4)}
+.kicon.crit{background:color-mix(in srgb,var(--z5) 18%,transparent);color:var(--z5)}
+
+/* 본문 */
+.main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);min-width:0}
+.maphead{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 0;gap:8px;flex-wrap:wrap}
+.maphead h2,.dhead h2{font-size:14px;margin:0;font-weight:600}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.mapbox{position:relative;padding:4px 8px 8px}
+#map{width:100%;height:auto;display:block;max-height:640px}
+#map .land{fill:var(--land);stroke:var(--coast);stroke-width:.8}
+#map .sea{fill:var(--sea)}
+.mk{cursor:pointer}
+.mk .halo{fill:var(--c);opacity:.16;transition:opacity .2s}
+.mk .core{fill:var(--surface);stroke:var(--c);stroke-width:2.4}
+.mk .arrow{fill:var(--c)}
+.mk .flow{stroke:var(--c);stroke-width:2;stroke-linecap:round;stroke-dasharray:3 6;fill:none;animation:flow var(--fd,2s) linear infinite}
+@keyframes flow{to{stroke-dashoffset:-18}}
+.mk text{font-size:14.5px;font-weight:600;fill:var(--ink);paint-order:stroke;stroke:var(--sea);stroke-width:4px;stroke-linejoin:round}
+.mk text.v{font-family:var(--font-num);font-weight:700;font-size:14px;fill:var(--c)}
+.mk.hov .halo{opacity:.34}
+.mk:hover .halo,.mk.sel .halo{opacity:.34}
+.mk.sel .core{stroke-width:3.4}
+.mk.crit .halo{animation:alarm 1.2s ease-in-out infinite}
+@keyframes alarm{50%{opacity:.5}}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12px;padding:6px 9px;border-radius:7px;white-space:nowrap;transform:translate(-50%,calc(-100% - 12px));opacity:0;transition:opacity .12s}
+.tip.on{opacity:1}
+
+.detail{display:flex;flex-direction:column}
+.dhead{display:flex;justify-content:space-between;gap:10px;padding:14px 16px 6px;align-items:flex-start;flex-wrap:wrap}
+.dhead .t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dhead h2{font-size:18px}
+.dhead .desc{font-size:12.5px;color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;color:var(--c);background:color-mix(in srgb,var(--c) 15%,transparent)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--c)}
+.badge{font-size:11px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);color:var(--muted);margin-left:6px;vertical-align:2px;font-weight:500}
+.now{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:6px 16px 10px;align-items:center}
+.compass{width:118px;height:118px}
+.compass .ring{fill:none;stroke:var(--line);stroke-width:1.2}
+.compass text{font-size:10px;fill:var(--muted);text-anchor:middle;dominant-baseline:middle;font-family:var(--font-num)}
+.compass .needle{transition:transform .7s cubic-bezier(.3,1.4,.5,1);transform-origin:60px 60px}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 14px}
+.stat .lab{font-size:11.5px;color:var(--muted)}
+.stat .v{font-size:20px;font-weight:600;line-height:1.2}
+.stat .v small{font-size:11.5px;color:var(--muted);font-weight:500;margin-left:2px}
+.stat.big{grid-column:1/-1}
+.stat.big .v{font-size:38px;letter-spacing:-.02em}
+.tabs{display:flex;gap:4px;padding:0 16px;border-bottom:1px solid var(--line)}
+.tabs button{border:0;background:none;padding:8px 10px;font-size:13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-color:var(--accent);font-weight:600}
+.chartbox{position:relative;padding:8px 10px 12px}
+.chartbox svg{width:100%;height:auto;display:block}
+.ax{font-size:10.5px;fill:var(--muted);font-family:var(--font-num)}
+.grid{stroke:var(--line);stroke-width:1}
+.ref{stroke-dasharray:3 4;stroke-width:1}
+.reflab{font-size:10px;font-family:var(--font-ui)}
+.cnote{font-size:11.5px;color:var(--muted);padding:0 16px 12px;display:flex;gap:14px;flex-wrap:wrap}
+.cnote i{display:inline-block;width:14px;height:0;border-top:2px solid var(--accent);vertical-align:3px;margin-right:4px}
+.cnote i.d{border-top-style:dashed}
+.cnote i.g{width:7px;height:7px;border:0;border-radius:50%;background:var(--z4);vertical-align:0}
+.cnote i.ly{border-top:2px solid var(--muted)}
+
+/* 전체 지점 */
+details.all{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+details.all summary{cursor:pointer;padding:12px 16px;font-weight:600;font-size:14px;list-style:none;display:flex;align-items:center;gap:8px}
+details.all summary::-webkit-details-marker{display:none}
+details.all summary svg{width:14px;height:14px;transition:transform .2s;color:var(--muted)}
+details.all[open] summary svg{transform:rotate(90deg)}
+details.all summary span{font-weight:400;color:var(--muted);font-size:12.5px}
+.tbl{overflow-x:auto;padding:0 6px 10px}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:13px}
+th{font-weight:500;color:var(--muted);font-size:11.5px;text-align:right;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--accent-soft)}
+tbody tr.sel{background:var(--accent-soft)}
+td .sw{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;background:var(--c)}
+.up{color:var(--z4)} .dn{color:var(--z1)}
+.foot{font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+
+/* 지역별 지점 (접히는 창) */
+details.regions{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+details.regions>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:11px 16px;font-weight:600;font-size:14px}
+details.regions>summary::-webkit-details-marker{display:none}
+details.regions>summary svg{width:14px;height:14px;color:var(--muted);transition:transform .2s}
+details.regions[open]>summary svg{transform:rotate(90deg)}
+details.regions>summary .sub{font-weight:400;color:var(--muted);font-size:12.5px}
+.rtabs{display:flex;gap:4px;padding:0 12px;border-bottom:1px solid var(--line);overflow-x:auto}
+.rtabs button{border:0;background:none;padding:7px 10px;font-size:13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:flex;gap:6px;align-items:baseline}
+.rtabs button[aria-selected="true"]{color:var(--ink);border-color:var(--accent);font-weight:600}
+.rtabs button small{font-family:var(--font-num);font-size:11px;color:var(--muted);font-weight:500}
+.rsum{font-size:12px;color:var(--muted);padding:8px 16px 0}
+.rsum b{color:var(--ink);font-weight:600}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px;padding:10px 12px 14px}
+.rc{position:relative;border:1px solid var(--line);border-radius:9px;padding:9px 11px 8px;background:var(--surface);cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:2px;font:inherit;color:inherit;border-left:4px solid var(--c)}
+.rc:hover{border-color:var(--c);background:color-mix(in srgb,var(--c) 6%,var(--surface))}
+.rc[aria-pressed="true"]{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface));box-shadow:0 0 0 1px var(--c) inset}
+.rc .nm{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13.5px}
+.rc .nm .src{font-size:10.5px;font-weight:500;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.rc .row{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+.rc .ws{font-family:var(--font-num);font-size:21px;font-weight:600;color:var(--c);line-height:1.2}
+.rc .ws small{font-size:11px;color:var(--muted);font-weight:500;margin-left:2px}
+.rc .zn{font-size:11.5px;color:var(--c);font-weight:600}
+.rc .meta{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.rc .meta svg{width:12px;height:12px;flex:none}
+.rc .wbg{position:absolute;top:8px;right:9px;font-size:10.5px;font-weight:700;color:#fff;background:var(--wc);border-radius:999px;padding:1px 6px}
+.rc .sp{margin-top:3px}
+@media (max-width:600px){.rgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px}.rc{padding:7px 8px}.rc .meta{display:none}.rc .ws{font-size:18px}.rc .nm .src{display:none}.rc .wbg{font-size:9.5px}}
+
+/* 특보·알림·지연 띠 */
+.alerts{display:flex;flex-direction:column;gap:8px}
+.alerts[hidden]{display:none}
+.band{--bc:var(--z5);display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:9px 14px;border-radius:var(--r);font-size:13px;
+  border:1px solid color-mix(in srgb,var(--bc) 40%,var(--line));background:color-mix(in srgb,var(--bc) 9%,var(--surface))}
+.band.alm{--bc:var(--z4)} .band.stale{--bc:var(--muted)} .band.cut{--bc:var(--z5)}
+.band .ttl{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--bc)}
+.band .ttl svg{width:16px;height:16px}
+.band .it b{font-weight:600}
+.band .it span{color:var(--muted)}
+.band .it[data-site]{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.wchip{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap;
+  color:var(--wc);background:color-mix(in srgb,var(--wc) 15%,transparent)}
+
+/* 해상 관측 표시(지도) */
+.mk2 .dm{fill:var(--c);stroke:var(--surface);stroke-width:1.2}
+.mk2 .stem{stroke:var(--c);stroke-width:1.6;stroke-linecap:round}
+.mk2{cursor:default;opacity:.9}
+.mk2.hl .dm{stroke:var(--ink);stroke-width:2}
+.mk .wb circle{fill:var(--wc);stroke:var(--surface);stroke-width:1.5}
+.mk .wb text{fill:#fff;stroke:none;font-size:9px;font-weight:700;text-anchor:middle}
+.wchips{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.legend .dmk{border-radius:1px;transform:rotate(45deg) scale(.85);background:var(--muted)}
+
+/* 지점 비교 */
+.cmphead{display:flex;justify-content:space-between;align-items:center;gap:8px 14px;flex-wrap:wrap;padding:12px 16px 4px}
+.cmphead h2{font-size:14px;margin:0;font-weight:600}
+.cmphead small{color:var(--muted);font-size:12px;font-weight:400;margin-left:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:4px 16px 2px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 11px;font-size:12.5px;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--line)}
+.chip[aria-pressed="true"]{color:var(--ink);border-color:var(--sc);background:color-mix(in srgb,var(--sc) 10%,var(--surface));font-weight:600}
+.chip[aria-pressed="true"] i{background:var(--sc)}
+.chip .num{font-weight:500;color:var(--muted)}
+#cmpchart{position:relative;padding:6px 10px 12px}
+#cmpchart svg{width:100%;height:auto;display:block}
+.tip .rw{display:flex;align-items:center;gap:6px}
+.tip .rw i{width:8px;height:8px;border-radius:50%}
+.empty{color:var(--muted);font-size:13px;padding:20px 6px;margin:0;text-align:center}
+
+/* 특보 · 해상 관측 카드 */
+.row2{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:14px}
+.chead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;padding:12px 16px 8px;border-bottom:1px solid var(--line)}
+.chead h2{font-size:14px;margin:0;font-weight:600}
+.chead span{font-size:12px;color:var(--muted)}
+.wlist{list-style:none;margin:0;padding:4px 0 8px;max-height:380px;overflow:auto}
+.wlist li{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:9px 16px;border-bottom:1px solid var(--line)}
+.wlist li:last-child{border-bottom:0}
+.wlist .reg{font-weight:500}
+.wlist .meta{grid-column:2;font-size:12px;color:var(--muted)}
+.seatbl{max-height:380px;overflow:auto;padding:0 6px 8px}
+.seatbl table{min-width:520px}
+.seatbl thead th{position:sticky;top:0;background:var(--surface)}
+.seatbl tbody tr{cursor:default}
+.tp{font-size:11px;color:var(--muted)}
+.mini{vertical-align:middle}
+
+/* 예보 vs 실적 표 */
+.errtbl{max-height:262px;overflow:auto;padding:0 6px}
+.errtbl table{min-width:0}
+.errtbl thead th{position:sticky;top:0;background:var(--surface)}
+.errtbl tbody tr{cursor:default}
+.errtbl td.bar{width:38%;padding-left:14px}
+.dbar{position:relative;height:10px}
+.dbar::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;border-left:1px solid var(--line)}
+.dbar i{position:absolute;top:0;height:10px;border-radius:2px}
+.tabs{overflow-x:auto}
+.daychips{display:flex;gap:6px;flex-wrap:wrap;padding:2px 16px 6px}
+.daychips .chip{padding:3px 9px;font-size:12px}
+.daychips .chip[aria-pressed="true"]{--sc:var(--accent)}
+.daychips .chip .num{font-size:11px}
+.cnote .seg button{padding:2px 9px;font-size:11.5px}
+.tabs button{white-space:nowrap}
+@media (max-width:460px){.errtbl td.bar,.errtbl th:last-child{display:none}.tabs button{padding:8px 7px;font-size:12.5px}}
+
+/* 설정 창 */
+dialog#cfg{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:0;width:min(560px,calc(100vw - 32px))}
+dialog#cfg::backdrop{background:rgba(8,16,24,.45)}
+.cfgf{display:flex;flex-direction:column;gap:12px;padding:16px 18px;max-height:min(80vh,720px);overflow:auto}
+.cfgf h2{margin:0;font-size:16px}
+.cfgf fieldset{border:1px solid var(--line);border-radius:8px;padding:8px 12px 10px;margin:0;display:flex;flex-direction:column;gap:7px;font-size:13px}
+.cfgf legend{font-size:12px;color:var(--muted);padding:0 4px}
+.cfgf label{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cfgf input[type=number]{width:72px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit;font-family:var(--font-num)}
+.cfgf .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.capgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 12px}
+.capgrid label{justify-content:space-between}
+.cfgf .hint{font-size:11.5px;color:var(--muted);margin:0}
+.cfgbtn{display:flex;justify-content:flex-end;gap:8px}
+.cfgbtn button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 14px;cursor:pointer}
+.cfgbtn .pri{background:var(--accent);border-color:var(--accent);color:var(--surface);font-weight:600}
+
+@media (max-width:900px){.main,.row2{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.mk text{font-size:21px;stroke-width:5px}.mk text.v{font-size:21px}}
+@media (max-width:460px){.kpi .sub{white-space:normal;overflow:visible}.kpi{align-items:flex-start}.now{grid-template-columns:1fr;justify-items:center}.stat.big .v{font-size:32px}.kpi .val{font-size:19px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* 사이트 왼쪽 탭(태양광 · 풍력, 2026-10-31 연구자): PC 왼쪽 세로 막대, 휴대폰 아래 탭 막대 */
+.rail{position:fixed;left:0;top:0;bottom:0;width:76px;z-index:40;display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 0;background:var(--surface);border-right:1px solid var(--line)}
+.rail a{width:62px;padding:10px 0 8px;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--muted);text-decoration:none;font:700 11.5px/1.2 system-ui,"Malgun Gothic",sans-serif}
+.rail a svg{width:24px;height:24px}.rail a:hover{color:var(--ink)}
+.rail a.s.on{background:color-mix(in srgb,#E0A21B 16%,transparent);color:#E0A21B}.rail a.w.on{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}.rail a.h.on{background:color-mix(in srgb,#E5533D 16%,transparent);color:#E5533D}.rail a.n.on{background:color-mix(in srgb,#5B4BFF 16%,transparent);color:#5B4BFF}.rail a.e:hover{color:#F59E0B}
+body{padding-left:92px!important}
+@media (max-width:760px){body{padding-left:max(12px,env(safe-area-inset-left,0px))!important;padding-bottom:76px!important}.rail{top:auto;right:0;width:auto;height:60px;flex-direction:row;justify-content:center;gap:4px;padding:0 6px env(safe-area-inset-bottom,0px);border-right:0;border-top:1px solid var(--line)}.rail a{flex:1;max-width:170px;flex-direction:column;justify-content:center;gap:2px;font-size:11.5px;white-space:nowrap;padding:6px 0}.rail a svg{width:21px;height:21px}}
+</style>
+</head>
+<body>
+
+<nav class="rail" aria-label="사이트 구역"><a href="index.html" class="s" title="태양광 예측"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>태양광</a><a href="wind.html" class="w on" title="풍력 바람 관제" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 11v11"/><path d="M12 11 10.6 2.6Q12 1.4 13.4 2.6Z" fill="currentColor"/><path d="M12 11 19.6 14.6Q19.6 16.4 17.9 16.6Z" fill="currentColor"/><path d="M12 11 4.4 15.1Q3.6 13.4 4.9 12.6Z" fill="currentColor"/></svg>풍력</a><a href="hazard.html" class="h" title="위험기상 종합상황도"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 20.5 7.3v9.4L12 21.5 3.5 16.7V7.3Z"/><path d="M12 8v5M12 16.3v.2"/></svg>위험기상</a><a href="notes.html" class="n" title="관제 근무노트(로그인)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="16" rx="3"/><path d="M8.5 2.5v4M15.5 2.5v4M4 9.5h16M8.5 14l2.5 2.5 4.5-4.5"/></svg>근무노트</a><a href="https://161-33-191-137.sslip.io/" class="e" title="에너지기상예보(로그인)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/></svg>에너지기상</a></nav>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg class="rotor" viewBox="0 0 30 30" aria-hidden="true"><line x1="15" y1="13" x2="15" y2="29" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><g><path d="M15 13 L13.6 2 Q15 0.6 16.4 2 Z" fill="currentColor"/><path d="M15 13 L13.6 2 Q15 0.6 16.4 2 Z" fill="currentColor" transform="rotate(120 15 13)"/><path d="M15 13 L13.6 2 Q15 0.6 16.4 2 Z" fill="currentColor" transform="rotate(240 15 13)"/></g><circle cx="15" cy="13" r="1.8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/></svg>
+      <div><h1>풍력 바람 관제</h1><small>전국 주요 풍력 지역 · 기상청 ASOS 관측 + 단기예보</small></div>
+    </div>
+    <div class="ctrls">
+      <div class="live" title="지금 값은 AWS 분자료(10분 평균), 그래프는 매시 정각 관측, 예보는 3시간마다 갱신됩니다"><span class="dot"></span><span>관측 <b class="num" id="obsT">-</b></span><span>·</span><span>다음 갱신 <b class="num" id="cd">-</b></span></div>
+      <div class="seg" role="group" aria-label="풍속 높이">
+        <button id="h10" aria-pressed="false" title="기상관측 높이(지상 10m) 실측값">관측 10m</button>
+        <button id="h100" aria-pressed="true" title="터빈 허브 높이 100m로 환산한 추정값 (멱법칙)">허브 100m</button>
+      </div>
+      <button class="iconbtn" id="theme" aria-label="밝은 화면으로" title="밝은 화면 / 어두운 화면"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><g class="sun"><circle cx="8" cy="8" r="3"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9 13 13M3 13l1.1-1.1M11.9 4.1 13 3"/></g><path class="moon" d="M13.2 10.2A5.6 5.6 0 0 1 5.8 2.8a5.6 5.6 0 1 0 7.4 7.4Z"/></svg></button>
+      <button class="iconbtn" id="gear" aria-label="설정" title="설정 — 알림 기준 · 출력곡선 · 설비용량"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M6.43,2.94L6.82,1.10L9.18,1.10L9.57,2.94L10.47,3.31L12.04,2.28L13.72,3.96L12.69,5.53L13.06,6.43L14.90,6.82L14.90,9.18L13.06,9.57L12.69,10.47L13.72,12.04L12.04,13.72L10.47,12.69L9.57,13.06L9.18,14.90L6.82,14.90L6.43,13.06L5.53,12.69L3.96,13.72L2.28,12.04L3.31,10.47L2.94,9.57L1.10,9.18L1.10,6.82L2.94,6.43L3.31,5.53L2.28,3.96L3.96,2.28L5.53,3.31Z"/><circle cx="8" cy="8" r="2.2"/></svg></button>
+      <button class="iconbtn" id="refresh" aria-label="지금 새로 고침" title="지금 새로 고침"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg></button>
+    </div>
+  </header>
+
+  <section class="alerts" id="alerts" hidden aria-live="polite"></section>
+
+  <section class="kpis" id="kpis" aria-label="요약"></section>
+
+  <details class="regions" id="regions">
+    <summary><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3l5 5-5 5"/></svg>지역별 지점 <span class="sub" id="rsub"></span></summary>
+    <div class="rtabs" role="tablist" id="rtabs"></div>
+    <div class="rsum" id="rsum"></div>
+    <div class="rgrid" id="rgrid"></div>
+  </details>
+
+  <section class="main">
+    <div class="card">
+      <div class="maphead"><h2>지금 바람</h2><div class="legend" id="legend"></div></div>
+      <div class="mapbox"><svg id="map" role="img" aria-label="주요 지점 풍속 지도"></svg><div class="tip" id="tip"></div></div>
+    </div>
+    <div class="card detail" id="detail" aria-live="polite"></div>
+  </section>
+
+  <section class="card" aria-label="지점 비교">
+    <div class="cmphead"><h2>지점 비교<small>최대 5곳 · 관측(상세 그래프의 3일/7일 기간) → 단기예보</small></h2><div class="legend" id="cmpnote"></div></div>
+    <div class="chips" id="chips" role="group" aria-label="비교할 지점"></div>
+    <div id="cmpchart"></div>
+  </section>
+
+  <section class="row2">
+    <div class="card"><div class="chead"><h2>기상특보 현황</h2><span id="wsub"></span></div><ul class="wlist" id="wlist"></ul></div>
+    <div class="card"><div class="chead"><h2>해상 관측 · 부이·등표</h2><span id="seasub"></span></div>
+      <div class="seatbl"><table><thead><tr><th>지점</th><th>풍속</th><th>돌풍</th><th>풍향</th><th>유의파고</th><th>24시간 (풍속 · 파고)</th><th>관측</th></tr></thead><tbody id="searows"></tbody></table></div></div>
+  </section>
+
+  <details class="all" id="all">
+    <summary><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3l5 5-5 5"/></svg>모든 지점 자세히 <span id="allsub"></span></summary>
+    <div class="tbl"><table><thead><tr><th>지점</th><th>현재</th><th>돌풍</th><th>운전 구간</th><th>추정 출력</th><th>특보</th><th>최근 24h 평균</th><th>예보 24h 최대</th><th>예보 오차</th><th>30일 평균</th><th>작년 같은 기간</th><th>최근 72h</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </details>
+
+  <dialog id="cfg"><form method="dialog" class="cfgf">
+    <h2>설정</h2>
+    <fieldset><legend>알림 기준</legend>
+      <label>허브 풍속 <input type="number" id="c_ws" step="0.5" min="5" max="40"> m/s 이상이면 알림</label>
+      <label><input type="checkbox" id="c_cut"> 24시간 안에 컷아웃 풍속 예보가 있으면 알림</label>
+      <label><input type="checkbox" id="c_wrn"> 지점에 특보(주의보·경보)가 발효되면 알림</label>
+      <label><input type="checkbox" id="c_snd"> 새 알림이 생기면 소리</label>
+    </fieldset>
+    <fieldset><legend>터빈 출력곡선 (허브 높이 풍속, m/s)</legend>
+      <div class="row"><label>기동 <input type="number" id="c_ci" step="0.5" min="1" max="8"></label><label>정격 <input type="number" id="c_rt" step="0.5" min="8" max="20"></label><label>정지 <input type="number" id="c_co" step="0.5" min="18" max="40"></label></div>
+    </fieldset>
+    <fieldset><legend>지점별 설비용량 (MW)</legend>
+      <div class="capgrid" id="c_cap"></div>
+      <p class="hint">넣은 지점은 추정 출력을 MW 로도 보여 줍니다. 비워 두면 % 로만 표시합니다. 이 브라우저에만 저장됩니다.</p>
+    </fieldset>
+    <div class="cfgbtn"><button value="cancel" formnovalidate>취소</button><button value="ok" class="pri">저장</button></div>
+  </form></dialog>
+
+  <footer class="foot">
+    <span id="src"></span>
+    <span id="ops"></span>
+    <span>허브 높이 풍속은 10m 관측값을 멱법칙(육상 α=0.143, 해상 α=0.11)으로 환산한 추정치입니다. 추정 출력은 출력곡선(<span id="curve"></span>) 가정입니다. 예보 오차는 전날 17시 발표 단기예보와 실제 관측의 차이입니다.</span>
+  </footer>
+</div>
+
+<script>
+const DATA = /*DATA*/null;
+(() => {
+"use strict";
+const $ = s => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+const CUT_MIN = 60;                              // 마지막 수집이 이보다 오래되면 '자료 끊김 추정' 띠(서버는 20분마다, 2026-10-31)
+const REFRESH_MIN = 5;                           // 사이트: 서버가 20분마다(:02 · :22 · :42) 올림, 화면은 5분마다 새 파일 확인(2026-10-31)
+const ZONES = [                                  // 허브높이 풍속 기준 운전 구간
+  {max:3,   key:"z0", name:"정지"},
+  {max:7,   key:"z1", name:"저출력"},
+  {max:12,  key:"z2", name:"양호"},
+  {max:20,  key:"z3", name:"정격"},
+  {max:25,  key:"z4", name:"강풍 주의"},
+  {max:1e9, key:"z5", name:"컷아웃"}];
+let CUT_IN = 3, RATED = 12, CUT_OUT = 25;
+const CFG0 = { ws: 20, cut: true, wrn: true, snd: false, ci: 3, rt: 12, co: 25, cap: {} };
+let CFG = { ...CFG0 };
+try { CFG = { ...CFG0, ...JSON.parse(localStorage.getItem("wind.cfg") || "{}") }; } catch (e) {}
+function applyCfg() { CUT_IN = +CFG.ci; RATED = +CFG.rt; CUT_OUT = +CFG.co; ZONES[0].max = CUT_IN; ZONES[2].max = RATED; ZONES[4].max = CUT_OUT; }
+applyCfg();
+const DIRS = ["북","북북동","북동","동북동","동","동남동","남동","남남동","남","남남서","남서","서남서","서","서북서","북서","북북서"];
+const TP = { B: "해양기상부이", C: "파고부이", L: "등표", F: "연안방재", J: "기상1호" };
+const SEA = { kind: "sea" };                       // 해상 관측은 해상 α 로 환산
+const WIND_WRN = ["강풍", "풍랑", "태풍"];
+const MAP_HIDE = new Set(["301", "269"]);             // 지도에서 빼는 지점(임자도·안마도) — 지역 창에서는 고를 수 있음
+const PROV = [["강원", ["100", "216"]], ["경북", ["277"]], ["울산", ["152"]], ["전북", ["140"]],
+              ["전남", ["252", "165", "169", "301", "269", "168", "170", "268", "303"]], ["제주", ["185", "188"]]];
+let D = DATA, H100 = true, sel = null;
+try { H100 = localStorage.getItem("wind.h") !== "10"; } catch (e) {}
+
+const alpha = s => s.kind === "sea" ? 0.11 : 0.143;
+const conv = (s, v) => v == null ? null : (H100 ? v * Math.pow(10, alpha(s)) : v);
+const zoneOf = (v, g) => { if (g != null && g >= CUT_OUT) return ZONES[5]; if (v == null) return ZONES[0];
+  const hv = v; return ZONES.find(z => hv < z.max); };
+const zoneHub = (s, v10, g10) => { const hv = v10 == null ? null : v10 * Math.pow(10, alpha(s));
+  const hg = g10 == null ? null : g10 * Math.pow(10, alpha(s)); return zoneOf(hv, hg); };
+const power = v => v == null || v < CUT_IN || v >= CUT_OUT ? 0 : v >= RATED ? 1 : (v**3 - CUT_IN**3) / (RATED**3 - CUT_IN**3);
+const hubPow = (s, v10) => power(v10 == null ? null : v10 * Math.pow(10, alpha(s)));
+const f1 = v => v == null ? "–" : v.toFixed(1);
+const dirName = d => d == null ? "–" : DIRS[Math.round(d / 22.5) % 16];
+const col = z => `var(--${z.key})`;
+const baseDate = () => new Date(D.base);
+const hhmm = off => { const t = new Date(baseDate().getTime() + off * 3600e3); return `${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,"0")}시`; };
+const el = (tag, attrs = {}, parent) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (parent) parent.appendChild(n); return n; };
+
+function last(s) { for (let i = s.obs.length - 1; i >= 0; i--) if (s.obs[i][1] != null) return s.obs[i]; return [0, null, null, null]; }
+function mean(a) { a = a.filter(v => v != null); return a.length ? a.reduce((x, y) => x + y, 0) / a.length : null; }
+function derive(s) {
+  const L = last(s), N = s.now && s.now[1] != null ? s.now : null;     // 분자료(10분 평균)가 있으면 그것을 '지금 값'으로
+  const o24 = s.obs.filter(r => r[0] > -24).map(r => r[1]);
+  const f24 = s.fc.filter(r => r[0] <= 24);
+  let fmax = null; for (const r of f24) if (r[1] != null && (fmax == null || r[1] > fmax[1])) fmax = r;
+  const pr = fdPairs(s).filter(r => r[0] > -24).map(r => r[1] - r[2]);
+  const nt = N ? new Date(N[0]) : null;
+  return { ws: N ? N[1] : L[1], wd: N ? N[2] : L[2], gst: N ? N[3] : L[3], t: L[0],
+           tl: N ? `${nt.getMonth() + 1}/${nt.getDate()} ${N[0].slice(11, 16)} · 10분 평균` : hhmm(L[0]),
+           nowOff: N ? (nt - baseDate()) / 3600e3 : null, avg24: mean(o24), fmax,
+           d30: mean(s.day.map(d => d[1])), ly30: mean(s.ly.map(d => d[1])),
+           mae: pr.length >= 6 ? mean(pr.map(Math.abs)) : null, bias: pr.length >= 6 ? mean(pr) : null, nerr: pr.length,
+           wrn: siteWrn(s) };
+}
+/* 전날 17시 발표 예보(fd: {YYYYMMDD: [[시, 풍속]]}) ↔ 시간 관측 짝 → [기준시각부터 시간, 예보, 실적, 날짜, 시] */
+const dayOff = (d, h) => (new Date(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8), h) - baseDate()) / 3600e3;
+function fdLine(s) { const out = []; for (const [d, hs] of Object.entries(s.fd || {})) for (const [h, v] of hs) out.push([dayOff(d, h), v, d, h]); return out.sort((a, b) => a[0] - b[0]); }
+function fdPairs(s) {
+  const om = new Map(s.obs.filter(r => r[1] != null).map(r => [r[0], r[1]]));
+  return fdLine(s).filter(r => r[1] != null && om.has(r[0])).map(r => [r[0], r[1], om.get(r[0]), r[2], r[3]]);
+}
+const dLab = d => { const t = new Date(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)); return `${t.getMonth() + 1}/${t.getDate()}(${"일월화수목금토"[t.getDay()]})`; };
+function siteWrn(s) { return (D.wrn || []).filter(w => (s.wc || []).length ? s.wc.includes(w.regId) : (s.wk || []).some(k => w.reg.includes(k))); }   // 구역코드로(없으면 이름 글자, 2026-10-31 운영)
+const capOf = s => { const c = parseFloat(CFG.cap?.[s.id]); return c > 0 ? c : null; };
+const f0 = v => v == null ? "–" : v >= 100 ? Math.round(v) : v.toFixed(1);
+
+/* ---------------- 알림 ---------------- */
+function alarms() {
+  const out = [];
+  for (const s of D.sites) {
+    const d = derive(s), hv = d.ws == null ? null : d.ws * Math.pow(10, alpha(s)), hg = d.gst == null ? null : d.gst * Math.pow(10, alpha(s));
+    if (hv != null && hv >= CFG.ws) out.push({ k: `ws:${s.id}`, s, t: `${s.name} 허브 ${f1(hv)} m/s` });
+    else if (hg != null && hg >= CUT_OUT) out.push({ k: `gs:${s.id}`, s, t: `${s.name} 돌풍 ${f1(hg)} m/s (컷아웃)` });
+    if (CFG.cut) { const f = s.fc.find(r => r[0] <= 24 && r[1] != null && r[1] * Math.pow(10, alpha(s)) >= CUT_OUT);
+      if (f) out.push({ k: `fc:${s.id}`, s, t: `${s.name} ${hhmm(f[0])} 컷아웃 예보 ${f1(f[1] * Math.pow(10, alpha(s)))} m/s` }); }
+    if (CFG.wrn) for (const w of d.wrn.filter(w => w.lvl !== "예비")) out.push({ k: `wr:${s.id}:${w.regId}:${w.wrn}`, s, t: `${s.name} ${wName(w)}` });
+  }
+  return out;
+}
+let seen = null;
+try { seen = new Set(JSON.parse(sessionStorage.getItem("wind.seen") || "null") || []); } catch (e) {}
+function beep() {
+  try { const ac = new (window.AudioContext || window.webkitAudioContext)();
+    [0, .22].forEach(t => { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = 880; o.connect(g); g.connect(ac.destination);
+      g.gain.setValueAtTime(.0001, ac.currentTime + t); g.gain.exponentialRampToValueAtTime(.25, ac.currentTime + t + .02);
+      g.gain.exponentialRampToValueAtTime(.0001, ac.currentTime + t + .18); o.start(ac.currentTime + t); o.stop(ac.currentTime + t + .2); });
+  } catch (e) {}
+}
+
+/* ---------------- 요약 ---------------- */
+function ringSVG(p) {
+  const r = 19, c = 2 * Math.PI * r;
+  return `<svg class="ring" viewBox="0 0 46 46"><circle cx="23" cy="23" r="${r}" fill="none" stroke="var(--line)" stroke-width="5"/>
+  <circle cx="23" cy="23" r="${r}" fill="none" stroke="var(--accent)" stroke-width="5" stroke-linecap="round" stroke-dasharray="${(c*p).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 23 23)"/></svg>`;
+}
+const ICON = {
+  gust: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 7h10a2.5 2.5 0 1 0-2.5-2.5"/><path d="M2 11h13a2.5 2.5 0 1 1-2.5 2.5"/><path d="M2 15h6"/></svg>',
+  warn: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M10 2.5 18 17H2z"/><path d="M10 8v4M10 14.5v.5" stroke-linecap="round"/></svg>',
+  fc:   '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 14l4-4 3 3 5-6"/><path d="M14 4h4v4"/></svg>'};
+
+function renderKPIs() {
+  const rows = D.sites.map(s => ({ s, d: derive(s) }));
+  const pAvg = mean(rows.map(r => hubPow(r.s, r.d.ws)));
+  const capR = rows.filter(r => capOf(r.s)), capT = capR.reduce((a, r) => a + capOf(r.s), 0), mwT = capR.reduce((a, r) => a + capOf(r.s) * hubPow(r.s, r.d.ws), 0);
+  const top = rows.reduce((a, b) => (b.d.ws ?? -1) > (a.d.ws ?? -1) ? b : a);
+  const risk = rows.filter(r => { const z = zoneHub(r.s, r.d.ws, r.d.gst); return z.key === "z4" || z.key === "z5"; });
+  let fTop = null; for (const r of rows) if (r.d.fmax && (!fTop || r.d.fmax[1] > fTop.d.fmax[1])) fTop = r;
+  const tv = conv(top.s, top.d.ws);
+  $("#kpis").innerHTML = `
+  ${capT ? `<div class="kpi" title="설비용량을 넣은 ${capR.length}개 지점의 추정 발전량 합계">${ringSVG(mwT / capT)}<div><div class="lab">추정 발전량</div><div class="val num">${f0(mwT)}<small>MW</small></div><div class="sub">설비 ${f0(capT)} MW 중 ${Math.round(mwT / capT * 100)}% · ${capR.length}곳</div></div></div>`
+  : `<div class="kpi" title="${D.sites.length}개 지점 추정 출력의 단순 평균 — 설정에서 설비용량을 넣으면 MW 로 표시">${ringSVG(pAvg ?? 0)}<div><div class="lab">추정 출력지수</div><div class="val num">${Math.round((pAvg ?? 0) * 100)}<small>%</small></div><div class="sub">지점 평균 · 정격 대비</div></div></div>`}
+  <div class="kpi" data-site="${top.s.id}"><span class="kicon">${ICON.gust}</span><div><div class="lab">가장 센 바람</div><div class="val num">${f1(tv)}<small>m/s</small></div><div class="sub">${top.s.name} · ${dirName(top.d.wd)}풍</div></div></div>
+  <div class="kpi" ${risk[0] ? `data-site="${risk[0].s.id}"` : ""}><span class="kicon ${risk.length ? "crit" : ""}">${ICON.warn}</span><div><div class="lab">강풍·컷아웃 주의</div><div class="val num">${risk.length}<small>곳</small></div><div class="sub">${risk.length ? risk.map(r => r.s.name).join(", ") : "허브높이 20 m/s 이상 없음"}</div></div></div>
+  <div class="kpi" ${fTop ? `data-site="${fTop.s.id}"` : ""}><span class="kicon warn">${ICON.fc}</span><div><div class="lab">24시간 내 최대 예보</div><div class="val num">${fTop ? f1(conv(fTop.s, fTop.d.fmax[1])) : "–"}<small>m/s</small></div><div class="sub">${fTop ? `${fTop.s.name} · ${hhmm(fTop.d.fmax[0])}` : ""}</div></div></div>`;
+  document.querySelectorAll(".kpi[data-site]").forEach(k => k.onclick = () => select(k.dataset.site, true));
+  document.querySelector(".rotor").style.setProperty("--spin", `${Math.max(0.6, 6 - (pAvg ?? 0) * 10)}s`);
+}
+
+/* ---------------- 지도 ---------------- */
+function renderMap() {
+  const svg = $("#map"); svg.innerHTML = "";
+  const { w, h } = D.map; svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  el("rect", { class: "sea", x: 0, y: 0, width: w, height: h }, svg);
+  el("path", { class: "land", d: D.map.d }, svg);
+  const sg = el("g", {}, svg);                       // 해상 관측(부이·등표) — 지점 표시 아래에 작게
+  for (const o of D.sea || []) {
+    const z = o.ws == null ? null : zoneHub(SEA, o.ws, o.gst), v = conv(SEA, o.ws);
+    const m = el("g", { class: "mk2", transform: `translate(${o.x},${o.y})` }, sg);
+    m.style.setProperty("--c", z ? col(z) : "var(--muted)"); m.dataset.id = o.id;
+    if (o.wd != null && (o.ws ?? 0) > 0.4)
+      el("line", { class: "stem", x1: 0, y1: -4, x2: 0, y2: -(8 + Math.min(12, (v ?? 0) * 0.7)) }, el("g", { transform: `rotate(${(o.wd + 180) % 360})` }, m));
+    el("rect", { class: "dm", x: -3.6, y: -3.6, width: 7.2, height: 7.2, transform: "rotate(45)" }, m);
+    m.addEventListener("mouseenter", () => seaTip(o)); m.addEventListener("mouseleave", hideTip);
+  }
+  const g = el("g", {}, svg);
+  for (const s of D.sites.filter(s => !MAP_HIDE.has(s.id))) {
+    const d = derive(s), z = zoneHub(s, d.ws, d.gst), v = conv(s, d.ws);
+    const m = el("g", { class: "mk" + (z.key === "z5" ? " crit" : ""), transform: `translate(${s.x},${s.y})`, tabindex: 0, role: "button", "aria-label": `${s.name} ${f1(v)} m/s` }, g);
+    m.style.setProperty("--c", col(z)); m.dataset.id = s.id;
+    const R = 9 + Math.min(14, (v ?? 0) * 0.9);
+    el("circle", { class: "halo", r: R + 8 }, m);
+    if (d.wd != null && (d.ws ?? 0) > 0.4) {            // 바람이 불어 가는 쪽으로 흐르는 선 + 화살촉
+      const a = el("g", { transform: `rotate(${(d.wd + 180) % 360})` }, m);
+      const L = 16 + Math.min(26, (v ?? 0) * 1.8);
+      const fl = el("line", { class: "flow", x1: 0, y1: -6, x2: 0, y2: -(L + 6) }, a);
+      fl.style.setProperty("--fd", `${Math.max(0.35, 3.2 - (v ?? 0) * 0.18)}s`);
+      el("path", { class: "arrow", d: `M0 ${-(L + 13)} L-4.5 ${-(L + 4)} L4.5 ${-(L + 4)} Z` }, a);
+    }
+    el("circle", { class: "core", r: 7 }, m);
+    if (d.wrn.length) {                                   // 지점에 걸린 특보 배지
+      const on = d.wrn.some(w => w.lvl !== "예비"), b = el("g", { class: "wb", transform: "translate(7,-9)" }, m);
+      b.style.setProperty("--wc", on ? "var(--z5)" : "var(--muted)");
+      el("circle", { r: 6 }, b); el("text", { y: 3.2 }, b).textContent = "!";
+    }
+    const crowd = D.sites.some(o => o !== s && !MAP_HIDE.has(o.id) && o.x - s.x > 0 && o.x - s.x < 62 && Math.abs(o.y - s.y) < 26);   // 오른쪽에 붙은 지점이 있으면 이름을 왼쪽에
+    const tx = s.x > D.map.w * 0.75 || crowd ? -12 : 12, an = tx < 0 ? "end" : "start";
+    el("text", { x: tx, y: -1, "text-anchor": an }, m).textContent = s.name;
+    el("text", { class: "v num", x: tx, y: 15, "text-anchor": an }, m).textContent = f1(v);
+    m.addEventListener("click", () => select(s.id, false));
+    m.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(s.id, false); } });
+    m.addEventListener("mouseenter", () => showTip(s, d, z));
+    m.addEventListener("mouseleave", hideTip);
+  }
+  $("#legend").innerHTML = ZONES.map(z => `<span><i style="background:${col(z)}"></i>${z.name}</span>`).join("")
+    + ((D.sea || []).length ? `<span><i class="dmk"></i>해상 관측</span>` : "");
+}
+const tip = () => $("#tip");
+function showTip(s, d, z) {
+  const svg = $("#map"), box = svg.getBoundingClientRect(), k = box.width / D.map.w;
+  const t = tip(); t.innerHTML = `<b>${s.name}</b> ${f1(conv(s, d.ws))} m/s · ${dirName(d.wd)}풍 · ${z.name}` + (d.wrn.length ? `<br>${d.wrn.map(wName).join(", ")}` : "");
+  t.style.left = (8 + s.x * k) + "px"; t.style.top = (4 + s.y * k - 10) + "px"; t.classList.add("on");
+}
+function hideTip() { tip().classList.remove("on"); }
+function seaTip(o) {
+  const k = $("#map").getBoundingClientRect().width / D.map.w, t = tip();
+  t.innerHTML = `<b>${o.name}</b> <span class="tp">${TP[o.tp] || ""}</span> ${seaSpark(o)}<br>${o.ws == null ? "바람 –" : `${f1(conv(SEA, o.ws))} m/s · ${dirName(o.wd)}풍 · 돌풍 ${f1(conv(SEA, o.gst))}`}${o.wh == null ? "" : ` · 파고 ${f1(o.wh)} m`}`;
+  t.style.left = (8 + o.x * k) + "px"; t.style.top = (4 + o.y * k - 10) + "px"; t.classList.add("on");
+}
+
+/* ---------------- 상세 ---------------- */
+let tab = "time";
+function compassSVG(wd) {
+  let ticks = "";
+  for (let i = 0; i < 36; i++) { const a = i * 10 * Math.PI / 180, r1 = i % 9 === 0 ? 43 : 47;
+    ticks += `<line x1="${60 + r1 * Math.sin(a)}" y1="${60 - r1 * Math.cos(a)}" x2="${60 + 50 * Math.sin(a)}" y2="${60 - 50 * Math.cos(a)}" stroke="var(--line)" stroke-width="${i % 9 === 0 ? 1.8 : 1}"/>`; }
+  const rot = wd == null ? 0 : wd;
+  return `<svg class="compass" viewBox="0 0 120 120" aria-label="풍향 ${dirName(wd)}">
+  <circle class="ring" cx="60" cy="60" r="50"/>${ticks}
+  <text x="60" y="22">N</text><text x="98" y="60">E</text><text x="60" y="98">S</text><text x="22" y="60">W</text>
+  <g class="needle" style="transform:rotate(${rot}deg)"><path d="M60 16 L66 60 L60 54 L54 60 Z" fill="var(--c)"/><path d="M60 104 L64 60 L60 66 L56 60 Z" fill="var(--line)"/></g>
+  <circle cx="60" cy="60" r="4" fill="var(--surface)" stroke="var(--c)" stroke-width="2"/></svg>`;
+}
+function renderDetail() {
+  const s = D.sites.find(x => x.id === sel), d = derive(s), z = zoneHub(s, d.ws, d.gst);
+  const box = $("#detail"); box.style.setProperty("--c", col(z));
+  const p = hubPow(s, d.ws), dl = d.d30 != null && d.ly30 != null ? d.d30 - d.ly30 : null, cap = capOf(s);
+  box.innerHTML = `
+  <div class="dhead"><div class="t"><h2>${s.name}<span class="badge">${s.kind === "sea" ? "해안·해상" : "육상"}</span></h2><span class="desc">${s.desc} · ${s.src === "aws" ? "AWS" : "ASOS"} ${s.id}</span>
+    ${d.wrn.length ? `<div class="wchips">${d.wrn.map(w => `<span class="wchip" style="--wc:${wCol(w)}" title="${w.reg}">${wName(w)}</span>`).join("")}</div>` : ""}</div>
+    <span class="pill"><i></i>${z.name}</span></div>
+  <div class="now">${compassSVG(d.wd)}
+    <div class="stats">
+      <div class="stat big"><div class="lab">${H100 ? "허브 100m 추정 풍속" : "관측 풍속 (10m)"} · ${d.tl}</div><div class="v num">${f1(conv(s, d.ws))}<small>m/s</small></div></div>
+      <div class="stat"><div class="lab">풍향</div><div class="v">${dirName(d.wd)}<small class="num">${d.wd ?? "–"}°</small></div></div>
+      <div class="stat"><div class="lab">돌풍</div><div class="v num">${f1(conv(s, d.gst))}<small>m/s</small></div></div>
+      <div class="stat"><div class="lab">추정 출력</div><div class="v num">${cap ? `${f0(cap * p)}<small>/ ${f0(cap)} MW</small>` : `${Math.round(p * 100)}<small>%</small>`}</div></div>
+      <div class="stat" style="grid-column:span 2" title="전날 17시 발표 예보와 최근 ${d.nerr}시간 관측의 차이 (평균 절대오차 · 평균 편향). 날짜별은 '예보 vs 실적' 탭"><div class="lab">예보 오차 · 전날 17시 발표, 최근 ${d.nerr}시간</div><div class="v num">${d.mae == null ? "–" : `±${f1(conv(s, d.mae))}<small>m/s · 실적이 예보보다 평균 ${f1(Math.abs(conv(s, d.bias)))} ${d.bias > 0 ? "약함" : "셈"}</small>`}</div></div>
+    </div></div>
+  <div class="tabs" role="tablist">
+    <button role="tab" data-t="time" aria-selected="${tab === "time"}">관측 → 예보</button>
+    <button role="tab" data-t="day" aria-selected="${tab === "day"}">지난 30일 · 작년 비교</button>
+    <button role="tab" data-t="err" aria-selected="${tab === "err"}">예보 vs 실적</button>
+  </div>
+  <div class="chartbox" id="chart"></div>
+  <div class="cnote" id="cnote"></div>`;
+  box.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { tab = b.dataset.t; renderDetail(); });
+  if (tab === "time") timeChart(s); else if (tab === "err") errTable(s); else dayChart(s, dl);
+}
+
+function axisY(svg, y, vmax, x0, x1, step) {
+  for (let v = 0; v <= vmax + 0.01; v += step) {
+    el("line", { class: "grid", x1: x0, x2: x1, y1: y(v), y2: y(v) }, svg);
+    el("text", { class: "ax", x: x0 - 6, y: y(v) + 3.5, "text-anchor": "end" }, svg).textContent = v;
+  }
+}
+function niceMax(v) { return v <= 10 ? 10 : v <= 15 ? 15 : v <= 20 ? 20 : v <= 30 ? 30 : Math.ceil(v / 10) * 10; }
+
+const chartW = () => Math.max(340, Math.min(620, Math.round($("#chart").clientWidth || 620)));
+let SPAN = 72;
+try { SPAN = +(localStorage.getItem("wind.span") || 72) === 168 ? 168 : 72; } catch (e) {}
+function timeChart(s) {
+  const W = chartW(), Hh = 250, L = 34, R = 12, T = 12, B = 26;
+  const obs = s.obs.filter(r => r[0] > -SPAN).map(r => [r[0], conv(s, r[1]), conv(s, r[3])]);
+  const fc = s.fc.map(r => [r[0], conv(s, r[1])]);
+  const fp = fdLine(s).filter(r => r[1] != null && r[0] > -SPAN && r[0] <= 0).map(r => [r[0], conv(s, r[1])]);
+  const xmin = Math.min(...obs.map(r => r[0])), xmax = Math.max(...fc.map(r => r[0]), 0);
+  const vmax = niceMax(Math.max(...obs.map(r => Math.max(r[1] ?? 0, r[2] ?? 0)), ...fc.map(r => r[1] ?? 0), H100 ? 13 : 9));
+  const x = t => L + (t - xmin) / (xmax - xmin) * (W - L - R), y = v => T + (1 - v / vmax) * (Hh - T - B);
+  const box = $("#chart"); box.innerHTML = "";
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": `${s.name} 풍속 추이` }, box);
+  axisY(svg, y, vmax, L, W - R, vmax <= 15 ? 3 : 5);
+  // 예보 구간 배경
+  el("rect", { x: x(0), y: T, width: x(xmax) - x(0), height: Hh - T - B, fill: "var(--accent-soft)", opacity: .45 }, svg);
+  // 운전 기준선 (허브 높이 보기에서만)
+  if (H100) for (const [v, n, c] of [[CUT_IN, "기동", "var(--z1)"], [RATED, "정격", "var(--z3)"], [CUT_OUT, "컷아웃", "var(--z5)"]]) {
+    if (v > vmax) continue;
+    el("line", { class: "ref", x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: c }, svg);
+    el("text", { class: "reflab", x: W - R - 2, y: y(v) - 4, "text-anchor": "end", fill: c }, svg).textContent = `${n} ${v}`;
+  }
+  // 날짜 눈금 (자정마다)
+  for (let t = Math.ceil(xmin); t <= xmax; t++) {
+    const dt = new Date(baseDate().getTime() + t * 3600e3);
+    if (dt.getHours() !== 0 || x(t) > W - R - 26) continue;
+    el("line", { class: "grid", x1: x(t), x2: x(t), y1: T, y2: Hh - B, "stroke-dasharray": "2 3" }, svg);
+    el("text", { class: "ax", x: x(t) + 3, y: Hh - 8 }, svg).textContent = `${dt.getMonth() + 1}/${dt.getDate()}`;
+  }
+  const path = pts => pts.filter(p => p[1] != null).map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+  const op = obs.filter(p => p[1] != null);
+  el("path", { d: path(op) + `L${x(op[op.length - 1][0])},${y(0)}L${x(op[0][0])},${y(0)}Z`, fill: "var(--accent)", opacity: .1 }, svg);
+  el("path", { d: path(obs), fill: "none", stroke: "var(--accent)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+  const lastO = op[op.length - 1];
+  el("path", { d: path([lastO, ...fc]), fill: "none", stroke: "var(--accent)", "stroke-width": 2, "stroke-dasharray": "5 4" }, svg);
+  if (fp.length > 1) el("path", { d: path(fp), fill: "none", stroke: "var(--muted)", "stroke-width": 1.4, "stroke-dasharray": "1.5 3", "stroke-linecap": "round" }, svg);
+  for (const p of obs) if (p[2] != null) el("circle", { cx: x(p[0]), cy: y(Math.min(p[2], vmax)), r: 3, fill: "var(--z4)" }, svg);
+  el("line", { x1: x(0), x2: x(0), y1: T - 4, y2: Hh - B, stroke: "var(--ink)", "stroke-width": 1 }, svg);
+  el("text", { class: "ax", x: x(0) + 4, y: T + 10, fill: "var(--ink)" }, svg).textContent = "지금";
+  el("circle", { cx: x(lastO[0]), cy: y(lastO[1]), r: 4.5, fill: "var(--accent)", stroke: "var(--surface)", "stroke-width": 2 }, svg);
+  const dn = derive(s);
+  if (dn.nowOff != null && dn.nowOff > 0 && dn.nowOff <= xmax)  // 분자료(10분 평균) 최신값
+    el("rect", { x: x(dn.nowOff) - 4, y: y(conv(s, dn.ws)) - 4, width: 8, height: 8, transform: `rotate(45 ${x(dn.nowOff)} ${y(conv(s, dn.ws))})`, fill: "var(--surface)", stroke: "var(--accent)", "stroke-width": 2 }, svg);
+  // 마우스 따라가는 값
+  const cross = el("g", { opacity: 0 }, svg);
+  const cl = el("line", { y1: T, y2: Hh - B, stroke: "var(--muted)", "stroke-width": 1 }, cross);
+  const cd = el("circle", { r: 4, fill: "var(--accent)", stroke: "var(--surface)", "stroke-width": 2 }, cross);
+  const all = [...obs.filter(p => p[1] != null).map(p => [...p, "관측"]), ...fc.filter(p => p[1] != null).map(p => [p[0], p[1], null, "예보"])];
+  const tt = document.createElement("div"); tt.className = "tip"; box.appendChild(tt);
+  let raf = 0;
+  svg.addEventListener("pointermove", e => {
+    if (raf) return; raf = requestAnimationFrame(() => { raf = 0;
+      const r = svg.getBoundingClientRect(), k = W / r.width, px = (e.clientX - r.left) * k;
+      const t = xmin + (px - L) / (W - L - R) * (xmax - xmin);
+      let best = all[0]; for (const p of all) if (Math.abs(p[0] - t) < Math.abs(best[0] - t)) best = p;
+      cl.setAttribute("x1", x(best[0])); cl.setAttribute("x2", x(best[0])); cd.setAttribute("cx", x(best[0])); cd.setAttribute("cy", y(best[1]));
+      cross.setAttribute("opacity", 1);
+      tt.innerHTML = `${hhmm(best[0])} · ${best[3]} <b>${f1(best[1])}</b> m/s` + (best[2] != null ? ` · 돌풍 ${f1(best[2])}` : "");
+      tt.style.left = (x(best[0]) / k + 10) + "px"; tt.style.top = (y(best[1]) / k + 8) + "px"; tt.classList.add("on"); });
+  });
+  svg.addEventListener("pointerleave", () => { cross.setAttribute("opacity", 0); tt.classList.remove("on"); });
+  $("#cnote").innerHTML = `<span><i></i>관측</span><span><i class="d"></i>단기예보 (${D.fcBase.slice(4, 6)}/${D.fcBase.slice(6, 8)} ${D.fcBase.slice(8, 10)}시 발표)</span>${fp.length > 1 ? `<span><i class="d" style="border-top-color:var(--muted);border-top-style:dotted"></i>전날 17시 발표 예보</span>` : ""}${dn.nowOff != null ? `<span>◇ 10분 평균(분자료)</span>` : ""}<span><i class="g"></i>돌풍</span>
+    <span class="seg" role="group" aria-label="기간"><button data-sp="72" aria-pressed="${SPAN === 72}">3일</button><button data-sp="168" aria-pressed="${SPAN === 168}">7일</button></span>`;
+  $("#cnote").querySelectorAll("[data-sp]").forEach(b => b.onclick = () => { SPAN = +b.dataset.sp; try { localStorage.setItem("wind.span", SPAN); } catch (e) {} timeChart(s); compareChart(); });
+}
+
+function dayChart(s, dl) {
+  const W = chartW(), Hh = 250, L = 34, R = 12, T = 12, B = 26;
+  if (!s.day.length) { $("#chart").innerHTML = `<p class="empty">${s.src === "aws" ? "AWS 지점은 일자료를 아직 받지 않아 30일·작년 비교가 없습니다." : "일자료가 없습니다."}</p>`; $("#cnote").innerHTML = ""; return; }
+  const n = s.day.length, bw = (W - L - R) / n;
+  const ly = s.ly.map(r => conv(s, r[1])), dv = s.day.map(r => conv(s, r[1])), dm = s.day.map(r => conv(s, r[2]));
+  const vmax = niceMax(Math.max(...dm.filter(v => v != null), ...ly.filter(v => v != null), 5));
+  const x = i => L + i * bw, y = v => T + (1 - v / vmax) * (Hh - T - B);
+  const box = $("#chart"); box.innerHTML = "";
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": `${s.name} 지난 30일 일평균 풍속` }, box);
+  axisY(svg, y, vmax, L, W - R, vmax <= 15 ? 3 : 5);
+  const tt = document.createElement("div"); tt.className = "tip"; box.appendChild(tt);
+  s.day.forEach((r, i) => {
+    const v = dv[i]; if (v == null) return;
+    const z = zoneOf(H100 ? v : v * Math.pow(10, alpha(s)), null);
+    const bar = el("rect", { x: x(i) + bw * 0.18, y: y(v), width: bw * 0.64, height: y(0) - y(v), rx: 2, fill: col(z), opacity: .85 }, svg);
+    if (dm[i] != null) el("line", { x1: x(i) + bw / 2, x2: x(i) + bw / 2, y1: y(dm[i]), y2: y(v), stroke: col(z), "stroke-width": 1, opacity: .5 }, svg);
+    bar.addEventListener("pointerenter", () => { tt.innerHTML = `${r[0]} 평균 <b>${f1(v)}</b> · 최대 ${f1(dm[i])} m/s` + (ly[i] != null ? ` · 작년 ${f1(ly[i])}` : "");
+      const k = svg.getBoundingClientRect().width / W; tt.style.left = (x(i) + bw / 2) * k + 10 + "px"; tt.style.top = y(v) * k + 8 + "px"; tt.classList.add("on"); });
+    bar.addEventListener("pointerleave", () => tt.classList.remove("on"));
+    if (i % (W < 500 ? 7 : 5) === 0) el("text", { class: "ax", x: x(i) + bw / 2, y: Hh - 8, "text-anchor": "middle" }, svg).textContent = r[0];
+  });
+  const lp = ly.map((v, i) => v == null ? null : `${x(i) + bw / 2},${y(v)}`).filter(Boolean);
+  if (lp.length > 1) el("path", { d: "M" + lp.join("L"), fill: "none", stroke: "var(--muted)", "stroke-width": 1.6, "stroke-dasharray": "1 0" }, svg);
+  const dd = dl == null ? "" : ` · 올해 30일 평균 ${f1(conv(s, mean(s.day.map(r => r[1]))))} m/s, 작년보다 <b class="${dl >= 0 ? "up" : "dn"}">${dl >= 0 ? "+" : ""}${f1(conv(s, Math.abs(dl)) * Math.sign(dl))}</b>`;
+  $("#cnote").innerHTML = `<span><i style="border-top:0;width:9px;height:9px;background:var(--z2);vertical-align:0"></i>일평균(막대) · 가는 선=일최대</span><span><i class="ly"></i>작년 같은 날 일평균</span><span>${dd}</span>`;
+}
+
+/* 어제 발표 예보와 그 뒤 실제 관측을 시간별로 — 차이 = 실적 − 예보 (+ 면 예보보다 실제가 셈) */
+let errDay = null;
+function errTable(s) {
+  const P = fdPairs(s), days = [...new Set(P.map(r => r[3]))].sort().reverse();
+  if (!days.includes(errDay)) errDay = days[0] ?? null;
+  const R = P.filter(r => r[3] === errDay).map(r => [r[0], conv(s, r[1]), conv(s, r[2])]).reverse();
+  const box = $("#chart");
+  if (!R.length) { box.innerHTML = `<p class="empty">비교할 예보 자료가 없습니다.</p>`; $("#cnote").innerHTML = ""; return; }
+  const chips = `<div class="daychips" role="group" aria-label="날짜">${days.map(d => { const e = P.filter(r => r[3] === d).map(r => Math.abs(r[2] - r[1]));
+    return `<button class="chip" data-d="${d}" aria-pressed="${d === errDay}" title="${dLab(d)} 평균 차이 (${H100 ? "허브 100m" : "관측 10m"})">${dLab(d)} <span class="num">±${f1(conv(s, mean(e)))}</span></button>`; }).join("")}</div>`;
+  const dm = Math.max(...R.map(r => Math.abs(r[2] - r[1])), 1);
+  box.innerHTML = chips + `<div class="errtbl"><table><thead><tr><th>시각</th><th>예보</th><th>실적</th><th>차이</th><th style="text-align:center">예보보다 약함 ← → 셈</th></tr></thead><tbody>${R.map(([t, f, o]) => {
+    const df = o - f, w = Math.abs(df) / dm * 50;
+    return `<tr><td class="num">${String(Math.round(t + baseDate().getHours() + 2400) % 24).padStart(2, "0")}시</td><td class="num">${f1(f)}</td><td class="num">${f1(o)}</td>
+      <td class="num ${Math.abs(df) < 0.05 ? "" : df > 0 ? "up" : "dn"}">${df > 0 ? "+" : ""}${f1(df)}</td>
+      <td class="bar"><div class="dbar"><i style="${df >= 0 ? `left:50%;background:var(--z4)` : `right:50%;background:var(--z1)`};width:${w.toFixed(1)}%"></i></div></td></tr>`; }).join("")}</tbody></table></div>`;
+  const d = R.map(r => r[2] - r[1]), mae = mean(d.map(Math.abs)), bias = mean(d), ok = d.filter(v => Math.abs(v) <= 2).length;
+  const mx = R.reduce((a, r) => Math.abs(r[2] - r[1]) > Math.abs(a[2] - a[1]) ? r : a);
+  box.querySelectorAll("[data-d]").forEach(b => b.onclick = () => { errDay = b.dataset.d; errTable(s); });
+  const pd = new Date(+errDay.slice(0, 4), +errDay.slice(4, 6) - 1, +errDay.slice(6, 8) - 1);
+  $("#cnote").innerHTML = `<span>${dLab(errDay)} · ${pd.getMonth() + 1}/${pd.getDate()} 17시 발표 예보 · ${R.length}시간 · ${H100 ? "허브 100m 추정" : "관측 10m"} (m/s)</span>
+    <span>평균 차이 <b>±${f1(mae)}</b></span><span>평균 <b class="${bias >= 0 ? "up" : "dn"}">${bias >= 0 ? "+" : ""}${f1(bias)}</b> (${bias >= 0 ? "예보보다 셈" : "예보보다 약함"})</span>
+    <span>±2 m/s 이내 ${Math.round(ok / R.length * 100)}%</span><span>최대 ${mx[2] - mx[1] > 0 ? "+" : ""}${f1(mx[2] - mx[1])} (${hhmm(mx[0])})</span>`;
+}
+
+/* ---------------- 전체 표 ---------------- */
+function spark(s) {
+  const v = s.obs.filter(r => r[0] > -72).map(r => conv(s, r[1])), mx = Math.max(...v.filter(a => a != null), 1);
+  const pts = v.map((a, i) => a == null ? null : `${(i / (v.length - 1) * 90).toFixed(1)},${(20 - a / mx * 18).toFixed(1)}`).filter(Boolean);
+  return `<svg width="92" height="22" viewBox="0 0 92 22" aria-hidden="true"><path d="M${pts.join("L")}" fill="none" stroke="var(--accent)" stroke-width="1.4"/></svg>`;
+}
+function renderTable() {
+  $("#rows").innerHTML = D.sites.map(s => {
+    const d = derive(s), z = zoneHub(s, d.ws, d.gst), dl = d.d30 != null && d.ly30 != null ? d.d30 - d.ly30 : null;
+    return `<tr data-id="${s.id}" class="${s.id === sel ? "sel" : ""}" style="--c:${col(z)}"><td><span class="sw"></span>${s.name}</td>
+    <td class="num">${f1(conv(s, d.ws))}</td><td class="num">${f1(conv(s, d.gst))}</td><td>${z.name}</td><td class="num">${capOf(s) ? `${f0(capOf(s) * hubPow(s, d.ws))} MW` : `${Math.round(hubPow(s, d.ws) * 100)}%`}</td>
+    <td>${d.wrn.length ? d.wrn.map(w => `<span class="wchip" style="--wc:${wCol(w)}">${wName(w)}</span>`).join(" ") : "–"}</td>
+    <td class="num">${f1(conv(s, d.avg24))}</td><td class="num">${d.fmax ? f1(conv(s, d.fmax[1])) : "–"}</td><td class="num">${d.mae == null ? "–" : "±" + f1(conv(s, d.mae))}</td>
+    <td class="num">${f1(conv(s, d.d30))}</td><td class="num ${dl == null ? "" : dl >= 0 ? "up" : "dn"}">${dl == null ? "–" : (dl >= 0 ? "▲ " : "▼ ") + f1(Math.abs(conv(s, dl)))}</td><td>${spark(s)}</td></tr>`;
+  }).join("");
+  document.querySelectorAll("#rows tr").forEach(tr => tr.onclick = () => select(tr.dataset.id, true));
+  $("#allsub").textContent = `${D.sites.length}개 지점 · ${H100 ? "허브 100m 추정" : "관측 10m"} 기준 (m/s)`;
+}
+
+/* ---------------- 특보 ---------------- */
+const tmTxt = t => t ? `${+t.slice(4, 6)}/${+t.slice(6, 8)} ${t.slice(8, 10)}:${t.slice(10, 12)}` : "–";
+const wName = w => w.lvl === "예비" ? `${w.wrn} 예비특보` : `${w.wrn}${w.lvl === "경보" ? "경보" : "주의보"}`;
+const wCol = w => w.lvl === "예비" ? "var(--muted)" : WIND_WRN.includes(w.wrn) ? (w.lvl === "경보" ? "var(--z5)" : "var(--z4)") : "var(--z3)";
+function renderWarnings() {
+  const W = (D.wrn || []).slice().sort((a, b) => (a.lvl === "예비") - (b.lvl === "예비") || (b.lvl === "경보") - (a.lvl === "경보") || a.reg.localeCompare(b.reg, "ko"));
+  const on = W.filter(w => w.lvl !== "예비"), pre = W.filter(w => w.lvl === "예비");
+  const groups = list => { const m = {}; for (const w of list) (m[wName(w)] ??= []).push(w.reg); return Object.entries(m); };
+  const A = alarms(), st = D.stale || [], age = D.made ? (Date.now() - new Date(D.made + "+09:00")) / 60e3 : null;
+  let h = "";
+  if (age > CUT_MIN) h += `<div class="band cut"><span class="ttl">${ICON.warn}자료 끊김 추정</span><span class="it">마지막 수집 ${D.made.slice(11, 16)} (${Math.round(age)}분 전) · 서버나 기상청 응답을 확인 중입니다. 지금 보이는 값은 오래된 값</span></div>`;
+  if (W.length) h += `<div class="band"><span class="ttl">${ICON.warn}특보</span>`
+      + groups(on).map(([n, r]) => `<span class="it"><b>${n}</b> ${r.length}구역 <span>${r.slice(0, 2).join(", ")}${r.length > 2 ? " 외" : ""}</span></span>`).join("")
+      + groups(pre).map(([n, r]) => `<span class="it"><span>${n}</span> ${r.length}구역</span>`).join("") + `</div>`;
+  if (A.length) h += `<div class="band alm"><span class="ttl">${ICON.gust}알림</span>` + A.map(x => `<span class="it" data-site="${x.s.id}">${x.t}</span>`).join("") + `</div>`;
+  if (st.length) h += `<div class="band stale"><span class="ttl">자료 지연</span><span class="it">${st.join(", ")} — 받기에 실패해 직전 값을 보여 주고 있습니다</span></div>`;
+  const a = $("#alerts"); a.innerHTML = h; a.hidden = !h;
+  a.querySelectorAll("[data-site]").forEach(e => e.onclick = () => select(e.dataset.site, true));
+  const ks = A.map(x => x.k);                             // 새로 생긴 알림이면 소리
+  if (seen && CFG.snd && ks.some(k => !seen.has(k))) beep();
+  seen = new Set(ks); try { sessionStorage.setItem("wind.seen", JSON.stringify(ks)); } catch (e) {}
+  $("#wsub").textContent = W.length ? `발효 ${on.length}건 · 예비 ${pre.length}건` : "";
+  $("#wlist").innerHTML = W.length ? W.map(w => `<li><span class="wchip" style="--wc:${wCol(w)}">${wName(w)}</span><span class="reg">${w.reg}</span>
+    <span class="meta">${w.up} · ${w.lvl === "예비" ? `발효 예고 ${tmTxt(w.tmEf)}` : `발효 ${tmTxt(w.tmEf)}`}${w.ed ? ` · 해제 예고 ${w.ed}` : ""} · 발표 ${tmTxt(w.tmFc)}</span></li>`).join("")
+    : `<li><p class="empty" style="grid-column:1/-1">현재 발효 중이거나 예고된 특보가 없습니다.</p></li>`;
+}
+
+/* ---------------- 해상 관측 표 ---------------- */
+function seaSpark(o) {                                  // 24시간: 풍속(선, 왼쪽 축) · 유의파고(옅은 면, 따로 맞춤)
+  const h = o.h || []; if (h.length < 2) return `<span class="tp">–</span>`;
+  const W = 110, Hh = 24, xs = i => (i / (h.length - 1) * (W - 2) + 1).toFixed(1);
+  const wv = h.map(r => conv(SEA, r[1])), hv = h.map(r => r[2]);
+  const wm = Math.max(...wv.filter(v => v != null), 1), hm = Math.max(...hv.filter(v => v != null), 0.5);
+  const line = (v, m) => v.map((a, i) => a == null ? null : `${xs(i)},${(Hh - 2 - a / m * (Hh - 4)).toFixed(1)}`).filter(Boolean);
+  const wl = line(wv, wm), hl = line(hv, hm);
+  return `<svg class="mini" width="${W}" height="${Hh}" viewBox="0 0 ${W} ${Hh}" aria-label="24시간 풍속 최대 ${f1(wm)} m/s, 파고 최대 ${f1(hm)} m">`
+    + (hl.length > 1 ? `<path d="M${hl[0].split(",")[0]},${Hh - 1}L${hl.join("L")}L${hl[hl.length - 1].split(",")[0]},${Hh - 1}Z" fill="var(--z3)" opacity=".16"/>` : "")
+    + (wl.length > 1 ? `<path d="M${wl.join("L")}" fill="none" stroke="var(--accent)" stroke-width="1.4"/>` : "") + `</svg>`;
+}
+function renderSea() {
+  const S = (D.sea || []).slice().sort((a, b) => (b.ws ?? -1) - (a.ws ?? -1) || (b.wh ?? -1) - (a.wh ?? -1));
+  $("#seasub").textContent = S.length ? `${S.length}곳 · 바람 센 순 · ${H100 ? "허브 100m 추정" : "관측"} (m/s)` : "";
+  $("#searows").innerHTML = S.length ? S.map(o => { const z = o.ws == null ? null : zoneHub(SEA, o.ws, o.gst);
+    return `<tr data-id="${o.id}" style="--c:${z ? col(z) : "var(--line)"}"><td><span class="sw"></span>${o.name} <span class="tp">${TP[o.tp] || ""}</span></td>
+    <td class="num">${f1(conv(SEA, o.ws))}</td><td class="num">${f1(conv(SEA, o.gst))}</td><td>${dirName(o.wd)}</td>
+    <td class="num">${o.wh == null ? "–" : f1(o.wh) + " m"}</td><td>${seaSpark(o)}</td><td class="num">${o.tm.slice(8, 10)}:${o.tm.slice(10, 12)}</td></tr>`; }).join("")
+    : `<tr><td colspan="7"><p class="empty">해상 관측 자료가 없습니다.</p></td></tr>`;
+  document.querySelectorAll("#searows tr[data-id]").forEach(tr => {           // 표에 올리면 지도에서 강조
+    const mk = () => document.querySelector(`.mk2[data-id="${tr.dataset.id}"]`);
+    tr.onmouseenter = () => mk()?.classList.add("hl"); tr.onmouseleave = () => mk()?.classList.remove("hl");
+  });
+}
+
+/* ---------------- 지역별 지점 ---------------- */
+let rtab = "전체";
+try { rtab = localStorage.getItem("wind.rtab") || "전체"; } catch (e) {}
+function provOf(id) { return (PROV.find(p => p[1].includes(id)) || ["기타"])[0]; }
+function renderRegions() {
+  const FIRST = ["전남", "전북"];                      // 자주 보는 전남·전북 먼저, 나머지는 지점 많은 순
+  const groups = [["전체", D.sites], ...PROV.map(([n, ids]) => [n, D.sites.filter(s => ids.includes(s.id))]).filter(g => g[1].length)
+    .sort((a, b) => { const ia = FIRST.indexOf(a[0]), ib = FIRST.indexOf(b[0]);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || b[1].length - a[1].length; })];
+  const other = D.sites.filter(s => provOf(s.id) === "기타"); if (other.length) groups.push(["기타", other]);
+  if (!groups.some(g => g[0] === rtab)) rtab = "전체";
+  const mx = list => list.reduce((a, s) => (derive(s).ws ?? -1) > (a ? derive(a).ws ?? -1 : -1) ? s : a, null);
+  $("#rtabs").innerHTML = groups.map(([n, list]) => { const t = mx(list);
+    return `<button role="tab" data-r="${n}" aria-selected="${n === rtab}">${n}<small>${list.length}곳${t ? ` · 최대 ${f1(conv(t, derive(t).ws))}` : ""}</small></button>`; }).join("");
+  const list = groups.find(g => g[0] === rtab)[1], t = mx(list), avg = mean(list.map(s => conv(s, derive(s).ws)));
+  const wr = list.filter(s => derive(s).wrn.some(w => w.lvl !== "예비"));
+  $("#rsub").textContent = `도별로 골라 오른쪽 상세에서 보기 · 지금 ${sel ? D.sites.find(s => s.id === sel)?.name : ""}`;
+  $("#rsum").innerHTML = `${rtab} ${list.length}곳 · 평균 <b class="num">${f1(avg)}</b> m/s · 가장 센 곳 <b>${t ? t.name : "–"} ${t ? f1(conv(t, derive(t).ws)) : ""}</b>${wr.length ? ` · 특보 <b>${wr.map(s => s.name).join(", ")}</b>` : ""} · ${H100 ? "허브 100m 추정" : "관측 10m"}`;
+  $("#rgrid").innerHTML = list.map(s => { const d = derive(s), z = zoneHub(s, d.ws, d.gst), on = d.wrn.some(w => w.lvl !== "예비");
+    const v = s.obs.filter(r => r[0] > -24).map(r => conv(s, r[1])), m = Math.max(...v.filter(a => a != null), 1);
+    const pts = v.map((a, i) => a == null ? null : `${(i / Math.max(1, v.length - 1) * 140).toFixed(1)},${(18 - a / m * 16).toFixed(1)}`).filter(Boolean);
+    return `<button class="rc" data-id="${s.id}" aria-pressed="${s.id === sel}" style="--c:${col(z)}" title="${s.desc}">
+      ${d.wrn.length ? `<span class="wbg" style="--wc:${on ? "var(--z5)" : "var(--muted)"}">${d.wrn.map(wName)[0]}</span>` : ""}
+      <span class="nm">${s.name}<span class="src">${s.src === "aws" ? "AWS" : "ASOS"}${MAP_HIDE.has(s.id) ? " · 지도 밖" : ""}</span></span>
+      <span class="row"><span class="ws">${f1(conv(s, d.ws))}<small>m/s</small></span><span class="zn">${z.name}</span></span>
+      <span class="meta"><svg viewBox="0 0 12 12" style="transform:rotate(${((d.wd ?? 0) + 180) % 360}deg)"><path d="M6 1 L9 9 L6 7.4 L3 9 Z" fill="currentColor"/></svg>${dirName(d.wd)}풍 · 돌풍 ${f1(conv(s, d.gst))} · 출력 ${Math.round(hubPow(s, d.ws) * 100)}%</span>
+      ${pts.length > 1 ? `<svg class="sp" viewBox="0 0 140 20" width="100%" height="20" preserveAspectRatio="none" aria-hidden="true"><path d="M${pts.join("L")}" fill="none" stroke="var(--c)" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>` : ""}
+    </button>`; }).join("");
+  $("#rtabs").querySelectorAll("[data-r]").forEach(b => b.onclick = () => { rtab = b.dataset.r; try { localStorage.setItem("wind.rtab", rtab); } catch (e) {} renderRegions(); });
+  $("#rgrid").querySelectorAll(".rc").forEach(b => {
+    const mk = () => document.querySelector(`.mk[data-id="${b.dataset.id}"]`);
+    b.onclick = () => select(b.dataset.id, true);
+    b.onmouseenter = () => mk()?.classList.add("hov"); b.onmouseleave = () => mk()?.classList.remove("hov");
+  });
+}
+try { if (localStorage.getItem("wind.regions") === "1") $("#regions").open = true; } catch (e) {}   // 처음엔 접힘, 펼쳐 두면 기억
+$("#regions").addEventListener("toggle", () => { try { localStorage.setItem("wind.regions", $("#regions").open ? "1" : "0"); } catch (e) {} });
+
+/* ---------------- 지점 비교 ---------------- */
+let cmp = [], cslot = {};
+function renderChips() {
+  $("#chips").innerHTML = D.sites.map(s => { const on = cmp.includes(s.id);
+    return `<button class="chip" data-id="${s.id}" aria-pressed="${on}" style="${on ? `--sc:var(--s${cslot[s.id]})` : ""}"><i></i>${s.name} <span class="num">${f1(conv(s, derive(s).ws))}</span></button>`; }).join("");
+  document.querySelectorAll("#chips .chip").forEach(b => b.onclick = () => {
+    const id = b.dataset.id;
+    if (cmp.includes(id)) { cmp = cmp.filter(x => x !== id); delete cslot[id]; }
+    else { if (cmp.length >= 5) { const o = cmp.shift(); delete cslot[o]; }
+      cmp.push(id); cslot[id] = [1, 2, 3, 4, 5].find(n => !Object.values(cslot).includes(n)); }
+    renderChips(); compareChart();
+  });
+}
+function compareChart() {
+  const box = $("#cmpchart"); box.innerHTML = "";
+  const ss = cmp.map(id => D.sites.find(s => s.id === id)).filter(Boolean);
+  if (!ss.length) { box.innerHTML = `<p class="empty">비교할 지점을 위에서 골라 주세요.</p>`; return; }
+  const W = Math.max(340, Math.min(1180, Math.round(box.clientWidth - 20 || 900))), Hh = W < 600 ? 240 : 270, L = 34, R = 12, T = 12, B = 26;
+  const ser = ss.map(s => ({ s, c: `var(--s${cslot[s.id]})`,
+    obs: s.obs.filter(r => r[1] != null && r[0] > -SPAN).map(r => [r[0], conv(s, r[1])]), fc: s.fc.filter(r => r[1] != null).map(r => [r[0], conv(s, r[1])]) }));
+  const xmin = Math.min(...ser.flatMap(e => e.obs.map(p => p[0]))), xmax = Math.max(0, ...ser.flatMap(e => e.fc.map(p => p[0])));
+  const vmax = niceMax(Math.max(...ser.flatMap(e => [...e.obs, ...e.fc].map(p => p[1])), H100 ? 13 : 9));
+  const x = t => L + (t - xmin) / (xmax - xmin) * (W - L - R), y = v => T + (1 - v / vmax) * (Hh - T - B);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": `지점 비교: ${ss.map(s => s.name).join(", ")}` }, box);
+  axisY(svg, y, vmax, L, W - R, vmax <= 15 ? 3 : 5);
+  el("rect", { x: x(0), y: T, width: x(xmax) - x(0), height: Hh - T - B, fill: "var(--accent-soft)", opacity: .45 }, svg);
+  if (H100) for (const [v, n, c] of [[CUT_IN, "기동", "var(--z1)"], [RATED, "정격", "var(--z3)"], [CUT_OUT, "컷아웃", "var(--z5)"]]) {
+    if (v > vmax) continue;
+    el("line", { class: "ref", x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: c }, svg);
+    el("text", { class: "reflab", x: W - R - 2, y: y(v) - 4, "text-anchor": "end", fill: c }, svg).textContent = `${n} ${v}`;
+  }
+  for (let t = Math.ceil(xmin); t <= xmax; t++) {
+    const dt = new Date(baseDate().getTime() + t * 3600e3);
+    if (dt.getHours() !== 0 || x(t) > W - R - 26) continue;
+    el("line", { class: "grid", x1: x(t), x2: x(t), y1: T, y2: Hh - B, "stroke-dasharray": "2 3" }, svg);
+    el("text", { class: "ax", x: x(t) + 3, y: Hh - 8 }, svg).textContent = `${dt.getMonth() + 1}/${dt.getDate()}`;
+  }
+  const path = pts => pts.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+  for (const e of ser) {
+    if (!e.obs.length) continue;
+    const lo = e.obs[e.obs.length - 1];
+    el("path", { d: path(e.obs), fill: "none", stroke: e.c, "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+    if (e.fc.length) el("path", { d: path([lo, ...e.fc]), fill: "none", stroke: e.c, "stroke-width": 2, "stroke-dasharray": "5 4" }, svg);
+    el("circle", { cx: x(lo[0]), cy: y(lo[1]), r: 4, fill: e.c, stroke: "var(--surface)", "stroke-width": 2 }, svg);
+  }
+  el("line", { x1: x(0), x2: x(0), y1: T - 4, y2: Hh - B, stroke: "var(--ink)", "stroke-width": 1 }, svg);
+  el("text", { class: "ax", x: x(0) + 4, y: T + 10, fill: "var(--ink)" }, svg).textContent = "지금";
+  const cross = el("g", { opacity: 0 }, svg), cl = el("line", { y1: T, y2: Hh - B, stroke: "var(--muted)", "stroke-width": 1 }, cross);
+  const dots = ser.map(e => el("circle", { r: 3.5, fill: e.c, stroke: "var(--surface)", "stroke-width": 1.5 }, cross));
+  const tt = document.createElement("div"); tt.className = "tip"; box.appendChild(tt);
+  const at = (e, t) => { let b = null; for (const p of [...e.obs, ...e.fc]) if (b == null || Math.abs(p[0] - t) < Math.abs(b[0] - t)) b = p; return b && Math.abs(b[0] - t) <= 1.5 ? b : null; };
+  let raf = 0;
+  svg.addEventListener("pointermove", ev => {
+    if (raf) return; raf = requestAnimationFrame(() => { raf = 0;
+      const r = svg.getBoundingClientRect(), k = W / r.width, px = (ev.clientX - r.left) * k;
+      const t = Math.round(xmin + (px - L) / (W - L - R) * (xmax - xmin));
+      cl.setAttribute("x1", x(t)); cl.setAttribute("x2", x(t)); cross.setAttribute("opacity", 1);
+      const vals = ser.map((e, i) => { const p = at(e, t); dots[i].setAttribute("opacity", p ? 1 : 0);
+        if (p) { dots[i].setAttribute("cx", x(p[0])); dots[i].setAttribute("cy", y(p[1])); } return [e, p]; });
+      tt.innerHTML = `<b>${hhmm(t)}</b> · ${t > 0 ? "예보" : "관측"}` + vals.sort((a, b) => (b[1]?.[1] ?? -1) - (a[1]?.[1] ?? -1))
+        .map(([e, p]) => `<div class="rw"><i style="background:${e.c}"></i>${e.s.name} <b class="num">${p ? f1(p[1]) : "–"}</b></div>`).join("");
+      const left = x(t) / k; tt.style.left = (left > r.width * .7 ? left - 150 : left + 14) + "px"; tt.style.top = "14px"; tt.style.transform = "none"; tt.classList.add("on"); });
+  });
+  svg.addEventListener("pointerleave", () => { cross.setAttribute("opacity", 0); tt.classList.remove("on"); });
+  $("#cmpnote").innerHTML = `<span><i style="border-radius:0;height:2px;width:14px;background:var(--muted)"></i>관측</span><span>- - 예보 (m/s, ${H100 ? "허브 100m 추정" : "관측 10m"})</span>`;
+}
+
+/* ---------------- 상태 ---------------- */
+function select(id, scroll) {
+  sel = id;
+  document.querySelectorAll(".mk").forEach(m => m.classList.toggle("sel", m.dataset.id === id));
+  document.querySelectorAll("#rows tr").forEach(r => r.classList.toggle("sel", r.dataset.id === id));
+  document.querySelectorAll("#rgrid .rc").forEach(b => b.setAttribute("aria-pressed", b.dataset.id === id));
+  const sn = D.sites.find(s => s.id === id); if (sn) $("#rsub").textContent = `도별로 골라 오른쪽 상세에서 보기 · 지금 ${sn.name}`;
+  renderDetail();
+  if (scroll && innerWidth < 900) $("#detail").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function renderAll() {
+  const b = baseDate(), nl = D.sites.map(s => s.now?.[0]).filter(Boolean).sort().pop();   // 분자료가 있으면 그 시각
+  $("#obsT").textContent = nl ? `${+nl.slice(5, 7)}/${+nl.slice(8, 10)} ${nl.slice(11, 16)}` : `${b.getMonth() + 1}/${b.getDate()} ${String(b.getHours()).padStart(2, "0")}:00`;
+  $("#src").textContent = `자료: 기상청 API허브 — ASOS 시간·일자료, 동네예보(단기) 격자 풍속, 해상관측(부이·등표), 기상특보 현황. 이 시안은 ${D.base.replace("T", " ")} KST 실제 수집값입니다.`;
+  $("#h10").setAttribute("aria-pressed", !H100); $("#h100").setAttribute("aria-pressed", H100);
+  $("#curve").textContent = `기동 ${CUT_IN}, 정격 ${RATED}, 정지 ${CUT_OUT} m/s`;
+  const c = D.calls; $("#ops").textContent = (D.made ? `수집 ${D.made.slice(5, 10).replace("-", "/")} ${D.made.slice(11)} KST` : "")
+    + (c ? ` · API 호출 이번 ${c.run}회, 오늘 누적 ${c.today.toLocaleString()} / ${c.limit.toLocaleString()}회` : "");
+  renderWarnings(); renderKPIs(); renderMap(); renderTable(); renderSea();
+  if (!sel) { const rows = D.sites.map(s => [s.id, derive(s).ws ?? -1]); sel = rows.sort((a, b) => b[1] - a[1])[0][0]; }
+  if (!cmp.length) { cmp = D.sites.map(s => [s.id, derive(s).ws ?? -1]).sort((a, b) => b[1] - a[1]).slice(0, 3).map(r => r[0]); cslot = {}; cmp.forEach((id, i) => cslot[id] = i + 1); }
+  cmp = cmp.filter(id => D.sites.some(s => s.id === id)); renderChips(); compareChart();
+  renderRegions();
+  select(sel, false);
+}
+function openCfg() {
+  $("#c_ws").value = CFG.ws; $("#c_cut").checked = CFG.cut; $("#c_wrn").checked = CFG.wrn; $("#c_snd").checked = CFG.snd;
+  $("#c_ci").value = CFG.ci; $("#c_rt").value = CFG.rt; $("#c_co").value = CFG.co;
+  $("#c_cap").innerHTML = D.sites.map(s => `<label>${s.name}<input type="number" min="0" step="0.1" data-id="${s.id}" value="${CFG.cap?.[s.id] ?? ""}" placeholder="MW"></label>`).join("");
+  $("#cfg").showModal();
+}
+$("#cfg").addEventListener("close", () => {
+  if ($("#cfg").returnValue !== "ok") return;
+  const n = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) ? v : d; };
+  const ci = n("#c_ci", 3), rt = Math.max(ci + 1, n("#c_rt", 12)), co = Math.max(rt + 1, n("#c_co", 25));
+  const cap = {}; document.querySelectorAll("#c_cap input").forEach(i => { const v = parseFloat(i.value); if (v > 0) cap[i.dataset.id] = v; });
+  CFG = { ws: n("#c_ws", 20), cut: $("#c_cut").checked, wrn: $("#c_wrn").checked, snd: $("#c_snd").checked, ci, rt, co, cap };
+  try { localStorage.setItem("wind.cfg", JSON.stringify(CFG)); } catch (e) {}
+  applyCfg(); renderAll();
+});
+$("#gear").onclick = openCfg;
+/* 테마: 처음엔 기기 설정을 따르고, 버튼을 누르면 밝은/어두운 화면으로 고정(이 브라우저에 기억) */
+const isDark = () => { const t = document.documentElement.dataset.theme; return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
+function setTheme(t) {
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  $("#theme").setAttribute("aria-label", isDark() ? "밝은 화면으로" : "어두운 화면으로");
+}
+try { setTheme(localStorage.getItem("sn-theme")); } catch (e) { setTheme(null); }
+$("#theme").onclick = () => { const t = isDark() ? "light" : "dark"; setTheme(t); try { localStorage.setItem("sn-theme", t); } catch (e) {} renderAll(); };
+function setH(h100) { H100 = h100; try { localStorage.setItem("wind.h", h100 ? "100" : "10"); } catch (e) {} renderAll(); }
+$("#h10").onclick = () => setH(false); $("#h100").onclick = () => setH(true);
+
+/* 자동 갱신: 같은 폴더의 wind_data.json 을 10분마다 다시 읽음 (수집 프로그램이 이 파일을 갱신). 없으면 지금 자료 유지 */
+let next = Date.now() + REFRESH_MIN * 60e3;
+async function refresh() {
+  const b = $("#refresh"); b.classList.add("spin");
+  try { const r = await fetch("data/wind.json?t=" + Date.now(), { cache: "no-store" });
+        if (r.ok) { const j = await r.json(); if (j && j.sites) { D = j; renderAll(); } } } catch (e) { /* 시안: 내장 자료 유지 */ }
+  if (D) renderWarnings();                                                         // 새 파일이 없어도 '자료 끊김' 판단은 다시
+  setTimeout(() => b.classList.remove("spin"), 600);
+  next = Date.now() + REFRESH_MIN * 60e3;
+}
+$("#refresh").onclick = refresh;
+setInterval(() => { const s = Math.max(0, Math.round((next - Date.now()) / 1000));
+  $("#cd").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; if (s === 0) refresh(); }, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() > next - 5000) refresh(); });
+
+if (D) renderAll(); refresh();                     // 사이트: 자료는 data/wind.json 에서 처음부터 읽음
+let rz = 0; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { if (sel) renderDetail(); compareChart(); }, 150); });
+})();
+</script>
+</body>
+</html>

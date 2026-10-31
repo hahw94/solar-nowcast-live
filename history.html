@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solar Nowcast · 과거 모델값</title>
+<meta name="description" content="발표별 예측값(이용률 · 발전량 · 평균 일사 · 기온)을 기간으로 조회하고 CSV 로 받기">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1220'/%3E%3Ccircle cx='16' cy='14' r='6' fill='%2322d3ee'/%3E%3Cpath d='M4 24c6-6 18-6 24 0' stroke='%23a78bfa' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<script>(function(){try{var t=localStorage.getItem('sn-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<style>
+/* 과거 모델값 조회 · 받기 페이지(2026-10-30 연구자 요청: 모델 변화 추이의 값을 기간으로 조회해 CSV 로 받기). 값은 data/evo/{날짜}.json 을 그대로 쓴다 */
+:root{--bg:#060a13;--bg2:#0d1422;--card:rgba(13,20,34,.86);--chip:rgba(148,163,184,.08);--line:rgba(148,163,184,.14);--line2:rgba(148,163,184,.26);--text:#e5ecf5;--sub:#9aa8bd;--muted:#64748b;--live:#22d3ee;--ok:#34d399;--warn:#fbbf24;
+  --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;--sans:Pretendard,"Malgun Gothic","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f4f6fa;--bg2:#eef1f6;--card:#ffffff;--chip:rgba(15,23,42,.05);--line:rgba(15,23,42,.1);--line2:rgba(15,23,42,.2);--text:#0f172a;--sub:#475569;--muted:#64748b;--live:#0891b2;--ok:#059669;--warn:#d97706;color-scheme:light}}
+:root[data-theme="light"]{--bg:#f4f6fa;--bg2:#eef1f6;--card:#ffffff;--chip:rgba(15,23,42,.05);--line:rgba(15,23,42,.1);--line2:rgba(15,23,42,.2);--text:#0f172a;--sub:#475569;--muted:#64748b;--live:#0891b2;--ok:#059669;--warn:#d97706;color-scheme:light}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.65 var(--sans);-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+a{color:var(--live)}
+.wrap{max-width:1240px;margin:0 auto;padding:18px 16px 34px}
+header{display:flex;gap:16px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;margin-bottom:4px}
+.b1{font-weight:800;letter-spacing:.14em;font-size:12px;color:var(--live)}
+h1{margin:4px 0 2px;font-size:22px;font-weight:800}
+.sub{color:var(--sub);font-size:13px}
+.hb{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tbtn,.back{cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:10px;border:1px solid var(--line2);background:transparent;color:var(--text);font:600 13px var(--sans);text-decoration:none;white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-top:14px}
+.ey{font-size:10.5px;font-weight:800;letter-spacing:.16em;color:var(--muted)}
+h2{margin:2px 0 4px;font-size:16px;font-weight:700}
+.cap{color:var(--muted);font-size:12px;margin-top:6px}
+.form{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:12px}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--sub)}
+.in,.sel{background:var(--bg2);border:1px solid var(--line2);color:var(--text);border-radius:10px;padding:8px 10px;font:700 13.5px var(--sans);min-width:150px}
+.btn{cursor:pointer;display:inline-flex;gap:6px;align-items:center;padding:9px 16px;border-radius:10px;border:1px solid var(--live);background:color-mix(in srgb,var(--live) 18%,transparent);color:var(--text);font:700 13.5px var(--sans)}
+.btn.sec{border-color:var(--line2);background:transparent}
+.btn:disabled{opacity:.4;cursor:default}
+.quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.quick button{cursor:pointer;border:1px solid var(--line2);background:var(--chip);color:var(--sub);border-radius:999px;padding:3px 11px;font:600 12px var(--sans)}
+.bar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
+.bar b{font-family:var(--mono)}
+.msg{color:var(--sub);font-size:13px}
+.msg.err{color:var(--warn)}
+.tbl{overflow:auto;border:1px solid var(--line);border-radius:12px;max-height:560px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:6px 10px;border-top:1px solid var(--line);text-align:right;white-space:nowrap}
+th{position:sticky;top:0;background:var(--bg2);color:var(--muted);font-weight:700;font-size:12px;border-top:0;border-bottom:1px solid var(--line2)}
+td{font-family:var(--mono)}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+td:last-child,th:last-child{text-align:left;font-family:var(--sans);color:var(--sub)}
+tr.est td{color:var(--sub);border-top:1px solid var(--line2)}
+tr.est td:nth-child(2){font-family:var(--sans)}
+.empty{color:var(--muted);padding:30px 12px;text-align:center;font-size:13px}
+footer{color:var(--muted);font-size:12px;margin-top:18px;line-height:1.75}
+@media (max-width:640px){.in,.sel{min-width:0;width:100%}.fld{flex:1 1 140px}.wrap{padding:14px 12px 28px}}
+
+/* 사이트 왼쪽 탭(태양광 · 풍력, 2026-10-31 연구자): PC 왼쪽 세로 막대, 휴대폰 아래 탭 막대 */
+.rail{position:fixed;left:0;top:0;bottom:0;width:76px;z-index:40;display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 0;background:var(--bg2);border-right:1px solid var(--line)}
+.rail a{width:62px;padding:10px 0 8px;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--muted);text-decoration:none;font:700 11.5px/1.2 system-ui,"Malgun Gothic",sans-serif}
+.rail a svg{width:24px;height:24px}.rail a:hover{color:var(--text)}
+.rail a.s.on{background:color-mix(in srgb,#E0A21B 16%,transparent);color:#E0A21B}.rail a.w.on{background:color-mix(in srgb,#46C2CB 16%,transparent);color:#46C2CB}.rail a.h.on{background:color-mix(in srgb,#E5533D 16%,transparent);color:#E5533D}.rail a.n.on{background:color-mix(in srgb,#5B4BFF 16%,transparent);color:#5B4BFF}.rail a.e:hover{color:#F59E0B}
+body{padding-left:92px!important}
+@media (max-width:760px){body{padding-left:max(12px,env(safe-area-inset-left,0px))!important;padding-bottom:76px!important}.rail{top:auto;right:0;width:auto;height:60px;flex-direction:row;justify-content:center;gap:4px;padding:0 6px env(safe-area-inset-bottom,0px);border-right:0;border-top:1px solid var(--line)}.rail a{flex:1;max-width:170px;flex-direction:column;justify-content:center;gap:2px;font-size:11.5px;white-space:nowrap;padding:6px 0}.rail a svg{width:21px;height:21px}}
+</style>
+</head>
+<body>
+<nav class="rail" aria-label="사이트 구역"><a href="index.html" class="s on" title="태양광 예측" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>태양광</a><a href="wind.html" class="w" title="풍력 바람 관제"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 11v11"/><path d="M12 11 10.6 2.6Q12 1.4 13.4 2.6Z" fill="currentColor"/><path d="M12 11 19.6 14.6Q19.6 16.4 17.9 16.6Z" fill="currentColor"/><path d="M12 11 4.4 15.1Q3.6 13.4 4.9 12.6Z" fill="currentColor"/></svg>풍력</a><a href="hazard.html" class="h" title="위험기상 종합상황도"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 20.5 7.3v9.4L12 21.5 3.5 16.7V7.3Z"/><path d="M12 8v5M12 16.3v.2"/></svg>위험기상</a><a href="notes.html" class="n" title="관제 근무노트(로그인)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="16" rx="3"/><path d="M8.5 2.5v4M15.5 2.5v4M4 9.5h16M8.5 14l2.5 2.5 4.5-4.5"/></svg>근무노트</a><a href="https://161-33-191-137.sslip.io/" class="e" title="에너지기상예보(로그인)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/></svg>에너지기상</a></nav>
+<div class="wrap">
+  <header>
+    <div><div class="b1">SOLAR NOWCAST · HISTORY</div><h1>과거 모델값 조회</h1>
+      <div class="sub">발표마다 낸 예측값을 기간으로 모아 보고 CSV 로 받습니다</div></div>
+    <div class="hb"><button class="tbtn" id="theme" aria-label="테마 바꾸기">🌙 다크</button><a class="back" href="./">← 실시간 예측으로</a></div>
+  </header>
+
+  <section class="card">
+    <div class="ey">PERIOD</div><h2>기간 선택</h2>
+    <div class="form">
+      <label class="fld">시작 날짜<input class="in" type="date" id="d0"></label>
+      <label class="fld">끝 날짜<input class="in" type="date" id="d1"></label>
+      <label class="fld">값<select class="sel" id="mt"><option value="util">이용률 (%)</option><option value="gw">발전량 (GW)</option><option value="irr">평균 일사 (W/m²)</option><option value="all">세 가지 모두</option></select></label>
+      <label class="fld">목표 시각<select class="sel" id="tg"><option value="hour">정각만 (07:00, 08:00 …)</option><option value="all">30분 단위 전부</option></select></label>
+      <button class="btn" id="go">조회</button>
+    </div>
+    <div class="quick" id="quick"></div>
+    <div class="cap" id="range"></div>
+  </section>
+
+  <section class="card" id="res" hidden>
+    <div class="bar"><div class="msg" id="sum"></div><div class="hb"><button class="btn" id="dl">⤓ CSV 다운로드</button></div></div>
+    <div class="tbl"><table id="tb"></table></div>
+    <div class="cap">모델 변화 추이 표와 같은 모양입니다. 줄 = 발표, 칸 = 목표 시각이고, 값은 그 시각 직전 1시간 평균입니다. 날마다 맨 아래 "실황 추정" 줄은 지난 시각을 위성으로 다시 추정한 값입니다. 맨 오른쪽 칸은 그 발표에 쓰인 모델입니다.</div>
+  </section>
+
+  <footer>연구 목적의 시험 운영 결과이며 공식 예보가 아닙니다. 값은 모델 변화 추이 표와 같은 자료입니다.</footer>
+</div>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const isN = v => typeof v === 'number' && isFinite(v);
+const MET = {util:['이용률(%)', 1, 3], gw:['발전량(GW)', 2, 4], irr:['평균 일사(W/m²)', 0, 1]}, MNAME = {util:'이용률', gw:'발전량', irr:'평균일사', all:'전체'};
+let IDX = null, DATA = [], ROWS = [], COLS = [], SHOWM = false, RANGE = '';
+const J = async u => { const r = await fetch(u, {cache:'no-cache'}); if(!r.ok) throw new Error(u + ' ' + r.status); return r.json(); };
+const fx = (v, d) => isN(v) ? v.toFixed(d) : '';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function setMsg(t, err){ const m = $('#sum'); m.textContent = t; m.className = 'msg' + (err ? ' err' : ''); }
+async function query(){
+  const a = $('#d0').value, b = $('#d1').value;
+  if(!a || !b){ $('#res').hidden = false; $('#tb').innerHTML = ''; ROWS = []; $('#dl').disabled = true; setMsg('시작 날짜와 끝 날짜를 모두 고르세요', true); return; }
+  const lo = a <= b ? a : b, hi = a <= b ? b : a, days = IDX.dates.filter(d => d >= lo && d <= hi).sort();
+  $('#res').hidden = false; $('#dl').disabled = true; $('#tb').innerHTML = ''; DATA = []; ROWS = []; setMsg('불러오는 중…');
+  if(!days.length){ setMsg('이 기간에 자료가 있는 날짜가 없습니다', true); $('#tb').innerHTML = '<tr><td class="empty">자료 없음</td></tr>'; return; }
+  const got = await Promise.allSettled(days.map(d => J(`data/evo/${d}.json`))), miss = [];
+  got.forEach((g, k) => { if(g.status === 'fulfilled' && g.value && g.value.cells && g.value.cells.length) DATA.push({date:days[k], d:g.value}); else miss.push(days[k]); });
+  RANGE = `${days[0]}_${days[days.length - 1]}`; $('#res').dataset.miss = miss.join(', ');
+  render();
+}
+/* 모델 변화 추이 표와 같은 모양: 줄 = 발표, 칸 = 목표 시각(발표보다 뒤인 것만), 날마다 맨 아래 실황 추정 줄 */
+function render(){
+  if(!DATA.length){ if($('#res').dataset.miss !== undefined) setMsg('이 기간에 값이 있는 날짜가 없습니다', true); return; }
+  const met = $('#mt').value, mets = met === 'all' ? ['util', 'gw', 'irr'] : [met], hourOnly = $('#tg').value === 'hour';
+  COLS = [...new Set(DATA.flatMap(x => x.d.targets || []))].filter(t => !hourOnly || t.endsWith(':00')).sort(); SHOWM = met === 'all'; ROWS = [];
+  mets.forEach(m => DATA.forEach(({date, d}) => {
+    const cell = {}; d.cells.forEach(c => { cell[c.issue + '|' + c.target] = c; });
+    [...d.issues].sort().forEach(i => ROWS.push({m, date, issue:i, vals:COLS.map(t => { const c = t > i ? cell[i + '|' + t] : null; return c ? c[m] : null; }), model:(d.models || {})[i] || ''}));
+    ROWS.push({m, date, issue:'실황 추정', est:true, vals:COLS.map(t => { const c = cell[t + '|' + t]; return c ? c[m] : null; }), model:''}); }));
+  const iss = DATA.reduce((n, x) => n + x.d.issues.length, 0), miss = $('#res').dataset.miss;
+  setMsg(`${DATA[0].date} ~ ${DATA[DATA.length - 1].date} · ${DATA.length}일 · 발표 ${iss}개 · ${met === 'all' ? '이용률 · 발전량 · 평균 일사' : MET[met][0]}${miss ? ` · 값이 없는 날짜 ${miss}` : ''}`, !!miss);
+  $('#dl').disabled = !ROWS.length;
+  $('#tb').innerHTML = `<thead><tr>${SHOWM ? '<th>값</th>' : ''}<th>날짜</th><th>발표 ↓ · 목표 →</th>${COLS.map(t => `<th>${t}</th>`).join('')}<th>모델</th></tr></thead><tbody>`
+    + ROWS.map(r => `<tr class="${r.est ? 'est' : ''}">${SHOWM ? `<td>${MET[r.m][0]}</td>` : ''}<td>${r.date}</td><td>${r.issue}</td>${r.vals.map(v => `<td>${fx(v, MET[r.m][1])}</td>`).join('')}<td>${esc(r.model)}</td></tr>`).join('') + '</tbody>';
+}
+function csvCell(v){ const s = String(v ?? ''); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function download(){
+  if(!ROWS.length) return;
+  const lines = [[...(SHOWM ? ['값'] : []), '날짜', '발표', ...COLS, '모델'].join(',')].concat(ROWS.map(r => [...(SHOWM ? [MET[r.m][0]] : []), r.date, r.issue, ...r.vals.map(v => fx(v, MET[r.m][2])), r.model].map(csvCell).join(',')));
+  const blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], {type:'text/csv;charset=utf-8'});      // BOM: 엑셀에서 한글이 깨지지 않게
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `nowcast_모델값_${MNAME[$('#mt').value]}_${RANGE}${$('#tg').value === 'all' ? '_30분' : ''}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function quick(){
+  const D = IDX.dates.slice().sort(), last = D[D.length - 1], mk = (t, a, b) => { const x = document.createElement('button'); x.textContent = t; x.onclick = () => { $('#d0').value = a; $('#d1').value = b; query(); }; $('#quick').appendChild(x); };
+  const back = n => D[Math.max(0, D.length - n)];
+  mk('오늘(최신)', last, last); if(D.length > 2) mk('최근 3일', back(3), last); if(D.length > 7) mk('최근 7일', back(7), last); mk('전체', D[0], last);
+}
+(async () => {
+  try{ IDX = await J('data/index.json'); }catch(e){ setMsg('자료 목록을 불러오지 못했습니다', true); $('#res').hidden = false; return; }
+  const D = IDX.dates.slice().sort(), first = D[0], last = D[D.length - 1], q = new URLSearchParams(location.search), ok = s => s && D.includes(s);
+  ['#d0', '#d1'].forEach(s => { $(s).min = first; $(s).max = last; });
+  $('#range').textContent = `조회할 수 있는 기간: ${first} ~ ${last} (${D.length}일). 값 하나(이용률 · 발전량 · 평균 일사)를 고르면 모델 변화 추이 표와 같은 모양으로 나오고, 그대로 CSV 로 받습니다.`;
+  $('#d0').value = ok(q.get('from')) ? q.get('from') : (D.length > 2 ? D[D.length - 3] : first); $('#d1').value = ok(q.get('to')) ? q.get('to') : last;
+  quick(); $('#mt').onchange = $('#tg').onchange = render; $('#go').onclick = query; $('#dl').onclick = download; query();
+})();
+function themeNow(){ const a = document.documentElement.getAttribute('data-theme'); return a || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'); }
+function themeBtn(){ $('#theme').textContent = themeNow() === 'dark' ? '☀️ 라이트' : '🌙 다크'; }
+$('#theme').addEventListener('click', () => { const t = themeNow() === 'dark' ? 'light' : 'dark'; document.documentElement.setAttribute('data-theme', t); try{ localStorage.setItem('sn-theme', t); }catch(e){} themeBtn(); });
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', themeBtn); themeBtn();
+</script>
+</body>
+</html>
